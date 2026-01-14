@@ -28,6 +28,10 @@ const validateSignup = [
   body('role')
     .notEmpty().withMessage('Role is required')
     .isIn(['customer', 'supplier']).withMessage('Invalid role. Only customer or supplier can sign up.'),
+  body('supplierType')
+    .if(body('role').equals('supplier'))
+    .notEmpty().withMessage('Supplier type is required')
+    .isIn(['commercial', 'residential', 'commercial_residential']).withMessage('Invalid supplier type'),
   handleValidationErrors,
 ];
 

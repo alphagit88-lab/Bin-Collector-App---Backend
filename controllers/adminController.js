@@ -27,7 +27,8 @@ const createAdmin = async (req, res) => {
       phone, 
       email, 
       role: 'admin', 
-      password 
+      password,
+      supplierType: null,
     });
 
     res.status(201).json({
@@ -48,13 +49,23 @@ const createAdmin = async (req, res) => {
 // Create user (admin, customer, or supplier)
 const createUser = async (req, res) => {
   try {
-    const { name, phone, email, role, password } = req.body;
+    const { name, phone, email, role, password, supplierType } = req.body;
 
     if (!['admin', 'customer', 'supplier'].includes(role)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid role. Must be admin, customer, or supplier',
       });
+    }
+
+    if (role === 'supplier') {
+      const allowedTypes = ['commercial', 'residential', 'commercial_residential'];
+      if (!supplierType || !allowedTypes.includes(supplierType)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Supplier type is required and must be commercial, residential, or commercial_residential',
+        });
+      }
     }
 
     if (!password || password.length < 6) {
@@ -79,7 +90,8 @@ const createUser = async (req, res) => {
       phone, 
       email, 
       role, 
-      password 
+      password,
+      supplierType,
     });
 
     res.status(201).json({

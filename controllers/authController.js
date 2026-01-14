@@ -4,7 +4,7 @@ const jwtConfig = require('../config/jwt');
 
 const signup = async (req, res) => {
   try {
-    const { name, phone, email, role, password } = req.body;
+    const { name, phone, email, role, password, supplierType } = req.body;
 
     // Prevent admin signup through public endpoint
     if (role === 'admin') {
@@ -24,7 +24,7 @@ const signup = async (req, res) => {
     }
 
     // Create user
-    const user = await User.create({ name, phone, email, role, password });
+    const user = await User.create({ name, phone, email, role, password, supplierType });
 
     // Generate token
     const token = jwt.sign(
@@ -43,6 +43,7 @@ const signup = async (req, res) => {
           phone: user.phone,
           email: user.email,
           role: user.role,
+          supplierType: user.supplierType,
         },
         token,
       },
