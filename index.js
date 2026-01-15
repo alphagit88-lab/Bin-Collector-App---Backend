@@ -1,14 +1,22 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const jwtConfig = require('./config/jwt');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const binRoutes = require('./routes/binRoutes');
 const systemSettingRoutes = require('./routes/systemSettingRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
+const bookingRoutes = require('./routes/bookingRoutes');
+const quoteRoutes = require('./routes/quoteRoutes');
+const walletRoutes = require('./routes/walletRoutes');
 
 const app = express();
+const server = http.createServer(app);
 
 // Allowed origins for CORS
 const allowedOrigins = [
@@ -56,6 +64,9 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/bins', binRoutes);
 app.use('/api/settings', systemSettingRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/bookings', bookingRoutes);
+app.use('/api/quotes', quoteRoutes);
+app.use('/api/wallet', walletRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -74,9 +85,56 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Socket.io setup
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
+});
+
+// Store io instance in app for use in controllers
+app.set('io', io);
+
+// Socket.io authentication and connection handling
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, jwtConfig.secret);
+    socket.userId = decoded.id;
+    socket.userRole = decoded.role;
+    next();
+  } catch (error) {
+    next(new Error('Authentication error'));
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.userId} (${socket.userRole})`);
+
+  // Join role-specific room
+  if (socket.userRole === 'customer') {
+    socket.join(`customer_${socket.userId}`);
+  } else if (socket.userRole === 'supplier') {
+    socket.join(`supplier_${socket.userId}`);
+    // Also join general suppliers room for broadcast notifications
+    socket.join('suppliers');
+  }
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.userId}`);
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Backend server running on http://localhost:${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔌 Socket.io server initialized`);
 });
