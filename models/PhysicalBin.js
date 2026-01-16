@@ -12,7 +12,8 @@ class PhysicalBin {
         u_supplier.phone as supplier_phone,
         u_customer.name as customer_name,
         u_customer.phone as customer_phone,
-        sr.request_id
+        sr.request_id,
+        sr.location as current_location
       FROM physical_bins pb
       JOIN bin_types bt ON pb.bin_type_id = bt.id
       JOIN bin_sizes bs ON pb.bin_size_id = bs.id
@@ -65,7 +66,8 @@ class PhysicalBin {
         u_supplier.phone as supplier_phone,
         u_customer.name as customer_name,
         u_customer.phone as customer_phone,
-        sr.request_id
+        sr.request_id,
+        sr.location as current_location
       FROM physical_bins pb
       JOIN bin_types bt ON pb.bin_type_id = bt.id
       JOIN bin_sizes bs ON pb.bin_size_id = bs.id
@@ -89,7 +91,8 @@ class PhysicalBin {
         u_supplier.phone as supplier_phone,
         u_customer.name as customer_name,
         u_customer.phone as customer_phone,
-        sr.request_id
+        sr.request_id,
+        sr.location as current_location
       FROM physical_bins pb
       JOIN bin_types bt ON pb.bin_type_id = bt.id
       JOIN bin_sizes bs ON pb.bin_size_id = bs.id
