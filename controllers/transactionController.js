@@ -1,5 +1,46 @@
 const Transaction = require('../models/Transaction');
 
+// Get my transactions (for customers and suppliers)
+const getMyTransactions = async (req, res) => {
+  try {
+    const filters = {};
+    
+    // Filter by user's role
+    if (req.user.role === 'customer') {
+      filters.customer_id = req.user.id;
+    } else if (req.user.role === 'supplier') {
+      filters.supplier_id = req.user.id;
+    } else {
+      // Admin can't use this endpoint, they should use /transactions
+      return res.status(403).json({
+        success: false,
+        message: 'Use /transactions endpoint for admin access',
+      });
+    }
+
+    if (req.query.payment_status) {
+      filters.payment_status = req.query.payment_status;
+    }
+    if (req.query.transaction_type) {
+      filters.transaction_type = req.query.transaction_type;
+    }
+
+    const transactions = await Transaction.findAll(filters);
+
+    res.json({
+      success: true,
+      transactions,
+    });
+  } catch (error) {
+    console.error('Get my transactions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching transactions',
+      error: error.message,
+    });
+  }
+};
+
 const getAllTransactions = async (req, res) => {
   try {
     const {
@@ -118,4 +159,5 @@ module.exports = {
   getTransactionById,
   getTransactionStats,
   updateTransaction,
+  getMyTransactions,
 };

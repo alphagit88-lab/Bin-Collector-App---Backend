@@ -3,6 +3,7 @@ const ServiceRequest = require('../models/ServiceRequest');
 const Transaction = require('../models/Transaction');
 const SupplierWallet = require('../models/SupplierWallet');
 const SystemSetting = require('../models/SystemSetting');
+const PhysicalBin = require('../models/PhysicalBin');
 
 // Submit quote (supplier)
 const submitQuote = async (req, res) => {
@@ -163,10 +164,30 @@ const acceptQuote = async (req, res) => {
       description: `Payment for ${request.request_id}`,
     });
 
-    // Update request payment status
+    // Find and assign an available bin
+    let assignedBin = null;
+    const availableBins = await PhysicalBin.findAll({
+      supplier_id: request.supplier_id,
+      bin_type_id: request.bin_type_id,
+      bin_size_id: request.bin_size_id,
+      status: 'available'
+    });
+
+    if (availableBins.length > 0) {
+      assignedBin = availableBins[0];
+      // Update bin status and link to request
+      await PhysicalBin.update(assignedBin.id, {
+        status: 'confirmed',
+        current_customer_id: customerId,
+        current_service_request_id: request.id
+      });
+    }
+
+    // Update request payment status and bin_id
     await ServiceRequest.update(quote.service_request_id, {
       payment_status: 'paid',
       status: 'confirmed',
+      bin_id: assignedBin ? assignedBin.id : null,
     });
 
     // Credit supplier wallet

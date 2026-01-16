@@ -215,9 +215,64 @@ const updateRequestStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+    const PhysicalBin = require('../models/PhysicalBin');
 
-    const request = await ServiceRequest.update(id, { status });
+    const request = await ServiceRequest.findById(id);
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found',
+      });
+    }
+
+    // Update request status
+    await ServiceRequest.update(id, { status });
     const updatedRequest = await ServiceRequest.findById(id);
+
+    // Update bin status if bin is assigned
+    if (request.bin_id) {
+      let binStatus = null;
+      let clearBinAssignment = false;
+
+      // Map service request status to bin status
+      switch (status) {
+        case 'confirmed':
+          binStatus = 'confirmed';
+          break;
+        case 'in_progress':
+          binStatus = 'loaded'; // When service request is in_progress, bin is loaded
+          break;
+        case 'loaded':
+          binStatus = 'loaded';
+          break;
+        case 'delivered':
+          binStatus = 'delivered';
+          break;
+        case 'ready_to_pickup':
+          binStatus = 'ready_to_pickup';
+          break;
+        case 'picked_up':
+          binStatus = 'picked_up';
+          break;
+        case 'completed':
+          binStatus = 'available';
+          clearBinAssignment = true;
+          break;
+        case 'cancelled':
+          binStatus = 'available';
+          clearBinAssignment = true;
+          break;
+      }
+
+      if (binStatus) {
+        const binUpdates = { status: binStatus };
+        if (clearBinAssignment) {
+          binUpdates.current_customer_id = null;
+          binUpdates.current_service_request_id = null;
+        }
+        await PhysicalBin.update(request.bin_id, binUpdates);
+      }
+    }
 
     // Notify customer
     const io = req.app.get('io');

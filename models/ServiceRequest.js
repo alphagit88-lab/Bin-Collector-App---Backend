@@ -59,12 +59,14 @@ class ServiceRequest {
         c.name AS customer_name,
         c.phone AS customer_phone,
         s.name AS supplier_name,
-        s.phone AS supplier_phone
+        s.phone AS supplier_phone,
+        pb.bin_code
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
+      LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       WHERE sr.id = $1
     `;
     const result = await pool.query(query, [id]);
@@ -78,12 +80,14 @@ class ServiceRequest {
         bt.name AS bin_type_name,
         bs.size AS bin_size,
         c.name AS customer_name,
-        s.name AS supplier_name
+        s.name AS supplier_name,
+        pb.bin_code
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
+      LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       WHERE sr.request_id = $1
     `;
     const result = await pool.query(query, [requestId]);
@@ -95,10 +99,12 @@ class ServiceRequest {
       SELECT 
         sr.*,
         bt.name AS bin_type_name,
-        bs.size AS bin_size
+        bs.size AS bin_size,
+        pb.bin_code
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
+      LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       WHERE sr.customer_id = $1
     `;
     const values = [customerId];
@@ -127,11 +133,13 @@ class ServiceRequest {
         bt.name AS bin_type_name,
         bs.size AS bin_size,
         c.name AS customer_name,
-        c.phone AS customer_phone
+        c.phone AS customer_phone,
+        pb.bin_code
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
+      LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       WHERE sr.supplier_id = $1
     `;
     const values = [supplierId];
@@ -160,11 +168,13 @@ class ServiceRequest {
         bt.name AS bin_type_name,
         bs.size AS bin_size,
         c.name AS customer_name,
-        c.phone AS customer_phone
+        c.phone AS customer_phone,
+        pb.bin_code
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
+      LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       WHERE sr.status = 'pending' AND sr.supplier_id IS NULL
       ORDER BY sr.created_at DESC
     `;
@@ -173,7 +183,7 @@ class ServiceRequest {
   }
 
   static async update(id, updates) {
-    const allowedUpdates = ['supplier_id', 'status', 'payment_status'];
+    const allowedUpdates = ['supplier_id', 'status', 'payment_status', 'bin_id'];
     const updateFields = [];
     const values = [];
     let paramCount = 1;

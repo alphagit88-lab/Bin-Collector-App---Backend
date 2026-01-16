@@ -5,10 +5,14 @@ const {
   getTransactionById,
   getTransactionStats,
   updateTransaction,
+  getMyTransactions,
 } = require('../controllers/transactionController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
-// All transaction routes require authentication and admin role
+// Customer/Supplier routes (authenticated users can view their own transactions)
+router.get('/my', authenticate, getMyTransactions);
+
+// Admin-only routes
 router.use(authenticate);
 router.use(requireAdmin);
 

@@ -32,6 +32,11 @@ class Transaction {
       values.push(filters.supplier_id);
     }
 
+    if (filters.transaction_type) {
+      query += ` AND t.transaction_type = $${paramCount++}`;
+      values.push(filters.transaction_type);
+    }
+
     if (filters.start_date) {
       query += ` AND t.created_at >= $${paramCount++}`;
       values.push(filters.start_date);
