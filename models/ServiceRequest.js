@@ -12,6 +12,7 @@ class ServiceRequest {
       start_date,
       end_date,
       estimated_price,
+      payment_method = 'online',
     } = data;
 
     const query = `
@@ -25,11 +26,12 @@ class ServiceRequest {
         start_date,
         end_date,
         estimated_price,
+        payment_method,
         status,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', NOW(), NOW())
       RETURNING *
     `;
 
@@ -43,6 +45,7 @@ class ServiceRequest {
       start_date,
       end_date,
       estimated_price || null,
+      payment_method,
     ];
 
     const result = await pool.query(query, values);
@@ -183,7 +186,7 @@ class ServiceRequest {
   }
 
   static async update(id, updates) {
-    const allowedUpdates = ['supplier_id', 'status', 'payment_status', 'bin_id'];
+    const allowedUpdates = ['supplier_id', 'status', 'payment_status', 'bin_id', 'payment_method'];
     const updateFields = [];
     const values = [];
     let paramCount = 1;
@@ -216,7 +219,7 @@ class ServiceRequest {
   static async assignSupplier(requestId, supplierId) {
     const query = `
       UPDATE service_requests
-      SET supplier_id = $1, status = 'quoted', updated_at = NOW()
+      SET supplier_id = $1, status = 'confirmed', updated_at = NOW()
       WHERE request_id = $2 AND status = 'pending'
       RETURNING *
     `;

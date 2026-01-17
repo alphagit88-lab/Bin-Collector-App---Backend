@@ -8,7 +8,6 @@ const {
   getRequestById,
   acceptRequest,
   updateRequestStatus,
-  processPayment,
   getAllServiceRequests,
 } = require('../controllers/bookingController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
@@ -17,7 +16,6 @@ const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 router.post('/', authenticate, createServiceRequest);
 router.get('/my-requests', authenticate, getMyRequests);
 router.get('/:id', authenticate, getRequestById);
-router.post('/:id/payment', authenticate, processPayment);
 
 // Supplier routes
 router.get('/supplier/requests', authenticate, getSupplierRequests);

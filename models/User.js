@@ -118,6 +118,30 @@ class User {
   static async verifyPassword(user, password) {
     return await bcrypt.compare(password, user.password_hash);
   }
+
+  // Find suppliers who have available bins matching the requirements
+  static async findQualifiedSuppliers(binTypeId, binSizeId, location = null) {
+    const query = `
+      SELECT DISTINCT
+        u.id,
+        u.name,
+        u.phone,
+        u.email,
+        COUNT(pb.id) as available_bin_count
+      FROM users u
+      INNER JOIN physical_bins pb ON u.id = pb.supplier_id
+      WHERE u.role = 'supplier'
+        AND pb.bin_type_id = $1
+        AND pb.bin_size_id = $2
+        AND pb.status = 'available'
+        AND pb.supplier_id IS NOT NULL
+      GROUP BY u.id, u.name, u.phone, u.email
+      HAVING COUNT(pb.id) > 0
+      ORDER BY available_bin_count DESC
+    `;
+    const result = await pool.query(query, [binTypeId, binSizeId]);
+    return result.rows;
+  }
 }
 
 module.exports = User;

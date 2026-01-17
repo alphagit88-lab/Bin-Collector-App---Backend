@@ -12,8 +12,8 @@ const binRoutes = require('./routes/binRoutes');
 const systemSettingRoutes = require('./routes/systemSettingRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
-const quoteRoutes = require('./routes/quoteRoutes');
 const walletRoutes = require('./routes/walletRoutes');
+const invoiceRoutes = require('./routes/invoiceRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -65,8 +65,8 @@ app.use('/api/bins', binRoutes);
 app.use('/api/settings', systemSettingRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/bookings', bookingRoutes);
-app.use('/api/quotes', quoteRoutes);
 app.use('/api/wallet', walletRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 // 404 handler
 app.use((req, res) => {

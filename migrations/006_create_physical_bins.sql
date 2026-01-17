@@ -28,9 +28,9 @@ ADD COLUMN IF NOT EXISTS bin_id INTEGER REFERENCES physical_bins(id) ON DELETE S
 CREATE INDEX IF NOT EXISTS idx_service_requests_bin_id ON service_requests(bin_id);
 
 -- Update service_requests status to include new statuses
+-- First drop the constraint
 ALTER TABLE service_requests 
 DROP CONSTRAINT IF EXISTS service_requests_status_check;
 
-ALTER TABLE service_requests 
-ADD CONSTRAINT service_requests_status_check 
-CHECK (status IN ('pending', 'quoted', 'accepted', 'confirmed', 'loaded', 'delivered', 'ready_to_pickup', 'picked_up', 'in_progress', 'completed', 'cancelled'));
+-- Note: Status constraint will be updated in migration 007 and 008
+-- This migration just creates the physical_bins table
