@@ -68,9 +68,16 @@ const getInvoiceByInvoiceId = async (req, res) => {
       });
     }
 
+    // Fetch order items for this invoice's service request
+    const OrderItem = require('../models/OrderItem');
+    const orderItems = await OrderItem.findByServiceRequest(invoice.service_request_id);
+
     res.json({
       success: true,
-      data: { invoice },
+      data: { 
+        invoice,
+        orderItems: orderItems || []
+      },
     });
   } catch (error) {
     console.error('Get invoice error:', error);

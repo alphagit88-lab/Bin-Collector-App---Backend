@@ -8,6 +8,8 @@ const {
   getRequestById,
   acceptRequest,
   updateRequestStatus,
+  getOrderItems,
+  markReadyToPickup,
   getAllServiceRequests,
 } = require('../controllers/bookingController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
@@ -16,12 +18,15 @@ const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 router.post('/', authenticate, createServiceRequest);
 router.get('/my-requests', authenticate, getMyRequests);
 router.get('/:id', authenticate, getRequestById);
+router.get('/:id/order-items', authenticate, getOrderItems);
+router.put('/:id/ready-to-pickup', authenticate, markReadyToPickup);
 
 // Supplier routes
 router.get('/supplier/requests', authenticate, getSupplierRequests);
 router.get('/supplier/pending', authenticate, getPendingRequests);
 router.post('/:id/accept', authenticate, acceptRequest);
 router.put('/:id/status', authenticate, updateRequestStatus);
+router.get('/:id/order-items', authenticate, getOrderItems);
 
 // Admin routes
 router.get('/admin/all', authenticate, requireAdmin, getAllServiceRequests);

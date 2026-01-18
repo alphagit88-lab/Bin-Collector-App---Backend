@@ -5,14 +5,14 @@ const SupplierWallet = require('../models/SupplierWallet');
 const SystemSetting = require('../models/SystemSetting');
 const Invoice = require('../models/Invoice');
 const PhysicalBin = require('../models/PhysicalBin');
+const OrderItem = require('../models/OrderItem');
 
-// Create service request (customer orders a bin)
+// Create service request (customer orders bins - supports multiple bins)
 const createServiceRequest = async (req, res) => {
   try {
     const {
       service_category,
-      bin_type_id,
-      bin_size_id,
+      bins, // Array of { bin_type_id, bin_size_id, quantity? }
       location,
       start_date,
       end_date,
@@ -21,18 +21,56 @@ const createServiceRequest = async (req, res) => {
 
     const customerId = req.user.id;
 
+    // Validate that bins array is provided and not empty
+    if (!bins || !Array.isArray(bins) || bins.length === 0) {
+      if (!req.body.bin_type_id || !req.body.bin_size_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bins are required. Provide either bins array or bin_type_id/bin_size_id',
+        });
+      }
+    }
+
+    // Support legacy single bin format for backward compatibility
+    let orderItems = [];
+    if (bins && Array.isArray(bins) && bins.length > 0) {
+      // New format: multiple bins
+      orderItems = bins.map(bin => ({
+        bin_type_id: parseInt(bin.bin_type_id),
+        bin_size_id: parseInt(bin.bin_size_id),
+        quantity: parseInt(bin.quantity) || 1,
+      }));
+    } else if (req.body.bin_type_id && req.body.bin_size_id) {
+      // Legacy format: single bin
+      orderItems = [{
+        bin_type_id: parseInt(req.body.bin_type_id),
+        bin_size_id: parseInt(req.body.bin_size_id),
+        quantity: 1,
+      }];
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Bins are required. Provide either bins array or bin_type_id/bin_size_id',
+      });
+    }
+
     // Generate request ID
     const requestId = `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
 
     // Calculate estimated price (simple algorithm for now)
-    const estimatedPrice = 100; // Base price, will be improved later
+    const estimatedPrice = 100 * orderItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
+
+    // Use first bin's type/size for backward compatibility with service_requests table
+    const firstBin = orderItems[0];
+
+    console.log('Creating ONE service request with ID:', requestId, 'for', orderItems.length, 'bin type(s)');
 
     const serviceRequest = await ServiceRequest.create({
       request_id: requestId,
       customer_id: customerId,
       service_category,
-      bin_type_id,
-      bin_size_id,
+      bin_type_id: parseInt(firstBin.bin_type_id),
+      bin_size_id: parseInt(firstBin.bin_size_id),
       location,
       start_date,
       end_date,
@@ -40,12 +78,24 @@ const createServiceRequest = async (req, res) => {
       payment_method,
     });
 
-    // Find qualified suppliers (those with available bins matching requirements)
-    const qualifiedSuppliers = await User.findQualifiedSuppliers(
-      bin_type_id,
-      bin_size_id,
-      location
-    );
+    // Create order items for all bins - ALL linked to the SAME service_request
+    const createdOrderItems = [];
+    for (const item of orderItems) {
+      for (let i = 0; i < (item.quantity || 1); i++) {
+        const orderItem = await OrderItem.create({
+          service_request_id: serviceRequest.id, // All items use the same service_request_id
+          bin_type_id: parseInt(item.bin_type_id),
+          bin_size_id: parseInt(item.bin_size_id),
+          status: 'pending',
+        });
+        createdOrderItems.push(orderItem);
+      }
+    }
+
+    console.log(`Created ${createdOrderItems.length} order item(s) for service request ${serviceRequest.id}`);
+
+    // Find qualified suppliers (those with ALL required bins available)
+    const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, location);
 
     // Emit notification only to qualified suppliers via Socket.io
     const io = req.app.get('io');
@@ -65,7 +115,8 @@ const createServiceRequest = async (req, res) => {
       data: { 
         serviceRequest: {
           ...serviceRequest,
-          payment_method: payment_method || 'online'
+          payment_method: payment_method || 'online',
+          orderItems: createdOrderItems,
         },
         qualifiedSuppliersCount: qualifiedSuppliers.length
       },
@@ -129,9 +180,20 @@ const getPendingRequests = async (req, res) => {
   try {
     const requests = await ServiceRequest.findPendingForSuppliers();
 
+    // Fetch order items for each request
+    const requestsWithItems = await Promise.all(
+      requests.map(async (request) => {
+        const orderItems = await OrderItem.findByServiceRequest(request.id);
+        return {
+          ...request,
+          orderItems,
+        };
+      })
+    );
+
     res.json({
       success: true,
-      data: { requests },
+      data: { requests: requestsWithItems },
     });
   } catch (error) {
     console.error('Get pending requests error:', error);
@@ -227,6 +289,11 @@ const acceptRequest = async (req, res) => {
       total_amount: totalAmount,
       payment_method: paymentMethod,
       payment_status: paymentMethod === 'online' ? 'paid' : 'unpaid',
+    });
+
+    // Update service request with invoice_id
+    await ServiceRequest.update(id, {
+      invoice_id: invoiceId,
     });
 
     let transaction = null;
@@ -326,7 +393,7 @@ const acceptRequest = async (req, res) => {
 const updateRequestStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, bin_code } = req.body; // bin_code required when status is 'on_delivery' (loaded)
+    const { status, bin_codes } = req.body; // bin_codes array required when status is 'on_delivery' (loaded)
     const PhysicalBin = require('../models/PhysicalBin');
     const Invoice = require('../models/Invoice');
     const Transaction = require('../models/Transaction');
@@ -349,49 +416,147 @@ const updateRequestStatus = async (req, res) => {
       });
     }
 
-    // When status changes to 'on_delivery' (loaded), supplier must assign a bin
+    // When status changes to 'on_delivery' (loaded), supplier must assign bins for all order items
     if (status === 'on_delivery') {
-      if (!bin_code) {
+      // Get all order items for this request
+      const orderItems = await OrderItem.findByServiceRequest(id);
+      
+      if (orderItems.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'Bin code is required when status changes to on_delivery',
+          message: 'No order items found for this request',
         });
       }
 
-      // Find the bin by code and verify it belongs to the supplier
-      const bin = await PhysicalBin.findByCode(bin_code);
-      if (!bin) {
-        return res.status(404).json({
-          success: false,
-          message: 'Bin not found',
-        });
-      }
+      // Support legacy single bin_code format
+      const binCodesArray = bin_codes && Array.isArray(bin_codes) 
+        ? bin_codes 
+        : (req.body.bin_code ? [req.body.bin_code] : []);
 
-      if (bin.supplier_id !== request.supplier_id) {
-        return res.status(403).json({
-          success: false,
-          message: 'You can only assign bins registered under your name',
-        });
-      }
-
-      if (bin.status !== 'available') {
+      if (binCodesArray.length !== orderItems.length) {
         return res.status(400).json({
           success: false,
-          message: 'Bin is not available',
+          message: `Please assign bins for all ${orderItems.length} order item(s). Received ${binCodesArray.length} bin code(s).`,
         });
       }
 
-      // Assign bin to request
+      // Check for duplicate bin codes in the assignment
+      const uniqueBinCodes = new Set(binCodesArray);
+      if (uniqueBinCodes.size !== binCodesArray.length) {
+        const duplicates = binCodesArray.filter((code, index) => binCodesArray.indexOf(code) !== index);
+        return res.status(400).json({
+          success: false,
+          message: `Duplicate bin codes detected: ${[...new Set(duplicates)].join(', ')}. Each bin can only be assigned to one order item.`,
+        });
+      }
+
+      // Check if any bins are already assigned to other order items (in this or other requests)
+      const binIds = [];
+      const binCodeToIdMap = {};
+      for (const binCode of binCodesArray) {
+        const bin = await PhysicalBin.findByCode(binCode);
+        if (bin) {
+          binIds.push(bin.id);
+          binCodeToIdMap[binCode] = bin.id;
+        }
+      }
+
+      if (binIds.length > 0) {
+        const OrderItem = require('../models/OrderItem');
+        const pool = require('../config/database');
+        
+        // Check if bins are assigned to other requests
+        const alreadyAssignedQuery = `
+          SELECT oi.id, oi.service_request_id, pb.bin_code
+          FROM order_items oi
+          INNER JOIN physical_bins pb ON oi.physical_bin_id = pb.id
+          WHERE oi.physical_bin_id = ANY($1)
+            AND oi.status NOT IN ('completed', 'cancelled')
+            AND oi.service_request_id != $2
+        `;
+        const alreadyAssigned = await pool.query(alreadyAssignedQuery, [binIds, id]);
+        
+        if (alreadyAssigned.rows.length > 0) {
+          const assignedBins = alreadyAssigned.rows.map(r => r.bin_code).join(', ');
+          return res.status(400).json({
+            success: false,
+            message: `The following bin(s) are already assigned to another order: ${assignedBins}`,
+          });
+        }
+
+        // Check if any bins are already assigned to other order items in the SAME request
+        const sameRequestQuery = `
+          SELECT oi.id, pb.bin_code
+          FROM order_items oi
+          INNER JOIN physical_bins pb ON oi.physical_bin_id = pb.id
+          WHERE oi.physical_bin_id = ANY($1)
+            AND oi.service_request_id = $2
+            AND oi.physical_bin_id IS NOT NULL
+        `;
+        const sameRequestAssigned = await pool.query(sameRequestQuery, [binIds, id]);
+        
+        if (sameRequestAssigned.rows.length > 0) {
+          const assignedBins = sameRequestAssigned.rows.map(r => r.bin_code).join(', ');
+          return res.status(400).json({
+            success: false,
+            message: `The following bin(s) are already assigned to other items in this order: ${assignedBins}`,
+          });
+        }
+      }
+
+      // Validate and assign each bin
+      for (let i = 0; i < orderItems.length; i++) {
+        const orderItem = orderItems[i];
+        const binCode = binCodesArray[i];
+
+        // Find the bin by code and verify it belongs to the supplier
+        const bin = await PhysicalBin.findByCode(binCode);
+        if (!bin) {
+          return res.status(404).json({
+            success: false,
+            message: `Bin with code ${binCode} not found`,
+          });
+        }
+
+        if (bin.supplier_id !== request.supplier_id) {
+          return res.status(403).json({
+            success: false,
+            message: `Bin ${binCode} does not belong to you`,
+          });
+        }
+
+        if (bin.status !== 'available') {
+          return res.status(400).json({
+            success: false,
+            message: `Bin ${binCode} is not available`,
+          });
+        }
+
+        // Verify bin matches order item requirements
+        if (bin.bin_type_id !== orderItem.bin_type_id || bin.bin_size_id !== orderItem.bin_size_id) {
+          return res.status(400).json({
+            success: false,
+            message: `Bin ${binCode} does not match order item requirements (Type: ${orderItem.bin_type_name}, Size: ${orderItem.bin_size})`,
+          });
+        }
+
+        // Update order item with bin assignment
+        await OrderItem.update(orderItem.id, {
+          physical_bin_id: bin.id,
+          status: 'loaded',
+        });
+
+        // Update bin status to loaded
+        await PhysicalBin.update(bin.id, {
+          status: 'loaded',
+          current_customer_id: request.customer_id,
+          current_service_request_id: id,
+        });
+      }
+
+      // Update request status
       await ServiceRequest.update(id, { 
         status: 'on_delivery',
-        bin_id: bin.id 
-      });
-
-      // Update bin status to loaded
-      await PhysicalBin.update(bin.id, {
-        status: 'loaded',
-        current_customer_id: request.customer_id,
-        current_service_request_id: id,
       });
     } else {
       // Update request status
@@ -400,17 +565,23 @@ const updateRequestStatus = async (req, res) => {
 
     const updatedRequest = await ServiceRequest.findById(id);
 
-    // Update bin status based on order status
-    if (updatedRequest.bin_id) {
+    // Get all order items for this request
+    const orderItems = await OrderItem.findByServiceRequest(id);
+
+    // Update order item and bin statuses based on order status
+    if (orderItems.length > 0) {
+      let orderItemStatus = null;
       let binStatus = null;
       let clearBinAssignment = false;
 
-      // Map service request status to bin status
+      // Map service request status to order item and bin status
       switch (status) {
         case 'on_delivery':
+          orderItemStatus = 'loaded';
           binStatus = 'loaded';
           break;
         case 'delivered':
+          orderItemStatus = 'delivered';
           binStatus = 'delivered';
           // If cash order, collect payment now
           if (request.payment_method === 'cash') {
@@ -465,6 +636,58 @@ const updateRequestStatus = async (req, res) => {
           }
           break;
         case 'ready_to_pickup':
+          orderItemStatus = 'ready_to_pickup';
+          binStatus = 'ready_to_pickup';
+          break;
+        case 'pickup':
+          orderItemStatus = 'picked_up';
+          binStatus = 'picked_up';
+          break;
+        case 'completed':
+          orderItemStatus = 'completed';
+          binStatus = 'available';
+          clearBinAssignment = true;
+          break;
+        case 'cancelled':
+          orderItemStatus = 'pending'; // Reset to pending
+          binStatus = 'available';
+          clearBinAssignment = true;
+          break;
+      }
+
+      // Update all order items and their associated bins
+      for (const orderItem of orderItems) {
+        if (orderItemStatus) {
+          await OrderItem.update(orderItem.id, { status: orderItemStatus });
+        }
+
+        if (orderItem.physical_bin_id) {
+          const binUpdates = {};
+          if (binStatus) {
+            binUpdates.status = binStatus;
+          }
+          if (clearBinAssignment) {
+            binUpdates.current_customer_id = null;
+            binUpdates.current_service_request_id = null;
+          }
+          if (Object.keys(binUpdates).length > 0) {
+            await PhysicalBin.update(orderItem.physical_bin_id, binUpdates);
+          }
+        }
+      }
+    } else if (updatedRequest.bin_id) {
+      // Legacy support: handle single bin assignment
+      let binStatus = null;
+      let clearBinAssignment = false;
+
+      switch (status) {
+        case 'on_delivery':
+          binStatus = 'loaded';
+          break;
+        case 'delivered':
+          binStatus = 'delivered';
+          break;
+        case 'ready_to_pickup':
           binStatus = 'ready_to_pickup';
           break;
         case 'pickup':
@@ -514,6 +737,115 @@ const updateRequestStatus = async (req, res) => {
 };
 
 
+// Get order items for a service request
+const getOrderItems = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const request = await ServiceRequest.findById(id);
+    
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found',
+      });
+    }
+
+    // Validate access
+    if (req.user.role === 'customer' && request.customer_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only view your own requests',
+      });
+    }
+
+    if (req.user.role === 'supplier' && request.supplier_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only view your own requests',
+      });
+    }
+
+    const orderItems = await OrderItem.findByServiceRequest(id);
+
+    res.json({
+      success: true,
+      data: { orderItems },
+    });
+  } catch (error) {
+    console.error('Get order items error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching order items',
+      error: error.message,
+    });
+  }
+};
+
+// Customer: Mark order as ready to pickup
+const markReadyToPickup = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customerId = req.user.id;
+
+    const request = await ServiceRequest.findById(id);
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found',
+      });
+    }
+
+    if (request.customer_id !== customerId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own requests',
+      });
+    }
+
+    if (request.status !== 'delivered') {
+      return res.status(400).json({
+        success: false,
+        message: 'Order must be delivered before marking as ready to pickup',
+      });
+    }
+
+    // Update request status
+    await ServiceRequest.update(id, { status: 'ready_to_pickup' });
+
+    // Update order items and bins
+    const orderItems = await OrderItem.findByServiceRequest(id);
+    for (const orderItem of orderItems) {
+      await OrderItem.update(orderItem.id, { status: 'ready_to_pickup' });
+      if (orderItem.physical_bin_id) {
+        await PhysicalBin.update(orderItem.physical_bin_id, { status: 'ready_to_pickup' });
+      }
+    }
+
+    const updatedRequest = await ServiceRequest.findById(id);
+
+    // Notify supplier
+    const io = req.app.get('io');
+    if (io && request.supplier_id) {
+      io.to(`supplier_${request.supplier_id}`).emit('request_ready_to_pickup', {
+        request: updatedRequest,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Order marked as ready to pickup',
+      data: { request: updatedRequest },
+    });
+  } catch (error) {
+    console.error('Mark ready to pickup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error marking order as ready to pickup',
+      error: error.message,
+    });
+  }
+};
+
 // Admin: Get all service requests
 const getAllServiceRequests = async (req, res) => {
   try {
@@ -548,5 +880,7 @@ module.exports = {
   getRequestById,
   acceptRequest,
   updateRequestStatus,
+  getOrderItems,
+  markReadyToPickup,
   getAllServiceRequests,
 };

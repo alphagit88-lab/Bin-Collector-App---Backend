@@ -63,13 +63,15 @@ class ServiceRequest {
         c.phone AS customer_phone,
         s.name AS supplier_name,
         s.phone AS supplier_phone,
-        pb.bin_code
+        pb.bin_code,
+        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
+      LEFT JOIN invoices i ON sr.id = i.service_request_id
       WHERE sr.id = $1
     `;
     const result = await pool.query(query, [id]);
@@ -84,13 +86,15 @@ class ServiceRequest {
         bs.size AS bin_size,
         c.name AS customer_name,
         s.name AS supplier_name,
-        pb.bin_code
+        pb.bin_code,
+        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
+      LEFT JOIN invoices i ON sr.id = i.service_request_id
       WHERE sr.request_id = $1
     `;
     const result = await pool.query(query, [requestId]);
@@ -103,11 +107,14 @@ class ServiceRequest {
         sr.*,
         bt.name AS bin_type_name,
         bs.size AS bin_size,
-        pb.bin_code
+        pb.bin_code,
+        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
+      LEFT JOIN invoices i ON sr.id = i.service_request_id
       WHERE sr.customer_id = $1
     `;
     const values = [customerId];
@@ -137,12 +144,15 @@ class ServiceRequest {
         bs.size AS bin_size,
         c.name AS customer_name,
         c.phone AS customer_phone,
-        pb.bin_code
+        pb.bin_code,
+        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
+      LEFT JOIN invoices i ON sr.id = i.service_request_id
       WHERE sr.supplier_id = $1
     `;
     const values = [supplierId];
@@ -172,7 +182,8 @@ class ServiceRequest {
         bs.size AS bin_size,
         c.name AS customer_name,
         c.phone AS customer_phone,
-        pb.bin_code
+        pb.bin_code,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
@@ -186,7 +197,7 @@ class ServiceRequest {
   }
 
   static async update(id, updates) {
-    const allowedUpdates = ['supplier_id', 'status', 'payment_status', 'bin_id', 'payment_method'];
+    const allowedUpdates = ['supplier_id', 'status', 'payment_status', 'bin_id', 'payment_method', 'invoice_id'];
     const updateFields = [];
     const values = [];
     let paramCount = 1;
@@ -236,12 +247,15 @@ class ServiceRequest {
         c.name AS customer_name,
         c.phone AS customer_phone,
         s.name AS supplier_name,
-        s.phone AS supplier_phone
+        s.phone AS supplier_phone,
+        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
+      LEFT JOIN invoices i ON sr.id = i.service_request_id
       WHERE 1=1
     `;
     const values = [];
