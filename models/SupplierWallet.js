@@ -96,6 +96,34 @@ class SupplierWallet {
         bankDetails ? JSON.stringify(bankDetails) : null,
       ]);
 
+      const newPayout = payoutResult.rows[0];
+
+      // Create invoice for this payout
+      const Invoice = require('./Invoice');
+      const invoiceId = `INV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
+
+      const invoiceQuery = `
+        INSERT INTO invoices (
+          invoice_id,
+          payout_id,
+          supplier_id,
+          total_amount,
+          payment_method,
+          payment_status,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, 'unpaid', NOW(), NOW())
+        RETURNING *
+      `;
+      await client.query(invoiceQuery, [
+        invoiceId,
+        newPayout.id,
+        newPayout.supplier_id,
+        amount,
+        'payout'
+      ]);
+
       // Deduct from balance and add to pending
       const updateQuery = `
         UPDATE supplier_wallets
@@ -122,7 +150,7 @@ class SupplierWallet {
       await client.query(transactionQuery, [walletId, amount]);
 
       await client.query('COMMIT');
-      return payoutResult.rows[0];
+      return newPayout;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -209,7 +237,7 @@ class SupplierWallet {
       RETURNING *
     `;
     const result = await pool.query(query, [status, adminNotes, payoutId]);
-    
+
     // If approved, update wallet pending balance
     if (status === 'approved') {
       const payout = result.rows[0];
@@ -231,7 +259,7 @@ class SupplierWallet {
         [payout.amount, payout.wallet_id]
       );
     }
-    
+
     return result.rows[0];
   }
 }

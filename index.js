@@ -22,6 +22,9 @@ const server = http.createServer(app);
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:3000',
   'http://localhost:3000',
+  'http://localhost:8081',
+  'http://192.168.8.120:3000',
+  'http://192.168.8.120:8081',
 ];
 
 // Middleware
@@ -50,7 +53,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check route
 app.get('/api/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'ok',
     message: 'Backend server is running',
     timestamp: new Date().toISOString(),
@@ -119,7 +122,7 @@ io.on('connection', (socket) => {
 
   // Join role-specific room
   if (socket.userRole === 'customer') {
-    socket.join(`customer_${socket.userId}`);
+    socket.join(`user_${socket.userId}`);
   } else if (socket.userRole === 'supplier') {
     socket.join(`supplier_${socket.userId}`);
     // Also join general suppliers room for broadcast notifications

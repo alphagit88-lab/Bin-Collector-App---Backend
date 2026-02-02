@@ -4,19 +4,17 @@ class Invoice {
   static async create(data) {
     const {
       invoice_id,
-      service_request_id,
-      customer_id,
+      payout_id,
       supplier_id,
       total_amount,
-      payment_method,
+      payment_method = 'payout',
       payment_status = 'unpaid',
     } = data;
 
     const query = `
       INSERT INTO invoices (
         invoice_id,
-        service_request_id,
-        customer_id,
+        payout_id,
         supplier_id,
         total_amount,
         payment_method,
@@ -24,14 +22,13 @@ class Invoice {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
       RETURNING *
     `;
 
     const values = [
       invoice_id,
-      service_request_id,
-      customer_id,
+      payout_id,
       supplier_id,
       total_amount,
       payment_method,
@@ -46,14 +43,12 @@ class Invoice {
     const query = `
       SELECT 
         i.*,
-        sr.request_id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
+        p.payout_id AS payout_transaction_id,
         s.name AS supplier_name,
-        s.phone AS supplier_phone
+        s.phone AS supplier_phone,
+        s.email AS supplier_email
       FROM invoices i
-      LEFT JOIN service_requests sr ON i.service_request_id = sr.id
-      LEFT JOIN users c ON i.customer_id = c.id
+      LEFT JOIN payouts p ON i.payout_id = p.id
       LEFT JOIN users s ON i.supplier_id = s.id
       WHERE i.id = $1
     `;
@@ -65,14 +60,12 @@ class Invoice {
     const query = `
       SELECT 
         i.*,
-        sr.request_id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
+        p.payout_id AS payout_transaction_id,
         s.name AS supplier_name,
-        s.phone AS supplier_phone
+        s.phone AS supplier_phone,
+        s.email AS supplier_email
       FROM invoices i
-      LEFT JOIN service_requests sr ON i.service_request_id = sr.id
-      LEFT JOIN users c ON i.customer_id = c.id
+      LEFT JOIN payouts p ON i.payout_id = p.id
       LEFT JOIN users s ON i.supplier_id = s.id
       WHERE i.invoice_id = $1
     `;
@@ -80,24 +73,22 @@ class Invoice {
     return result.rows[0];
   }
 
-  static async findByServiceRequest(serviceRequestId) {
+  static async findByPayoutId(payoutId) {
     const query = `
       SELECT 
         i.*,
-        sr.request_id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
+        p.payout_id AS payout_transaction_id,
         s.name AS supplier_name,
-        s.phone AS supplier_phone
+        s.phone AS supplier_phone,
+        s.email AS supplier_email
       FROM invoices i
-      LEFT JOIN service_requests sr ON i.service_request_id = sr.id
-      LEFT JOIN users c ON i.customer_id = c.id
+      LEFT JOIN payouts p ON i.payout_id = p.id
       LEFT JOIN users s ON i.supplier_id = s.id
-      WHERE i.service_request_id = $1
+      WHERE i.payout_id = $1
       ORDER BY i.created_at DESC
       LIMIT 1
     `;
-    const result = await pool.query(query, [serviceRequestId]);
+    const result = await pool.query(query, [payoutId]);
     return result.rows[0];
   }
 
@@ -141,24 +132,17 @@ class Invoice {
     let query = `
       SELECT 
         i.*,
-        sr.request_id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
+        p.payout_id AS payout_transaction_id,
         s.name AS supplier_name,
-        s.phone AS supplier_phone
+        s.phone AS supplier_phone,
+        s.email AS supplier_email
       FROM invoices i
-      LEFT JOIN service_requests sr ON i.service_request_id = sr.id
-      LEFT JOIN users c ON i.customer_id = c.id
+      LEFT JOIN payouts p ON i.payout_id = p.id
       LEFT JOIN users s ON i.supplier_id = s.id
       WHERE 1=1
     `;
     const values = [];
     let paramCount = 1;
-
-    if (filters.customer_id) {
-      query += ` AND i.customer_id = $${paramCount++}`;
-      values.push(filters.customer_id);
-    }
 
     if (filters.supplier_id) {
       query += ` AND i.supplier_id = $${paramCount++}`;
@@ -173,6 +157,11 @@ class Invoice {
     if (filters.payment_method) {
       query += ` AND i.payment_method = $${paramCount++}`;
       values.push(filters.payment_method);
+    }
+
+    if (filters.payout_id) {
+      query += ` AND i.payout_id = $${paramCount++}`;
+      values.push(filters.payout_id);
     }
 
     query += ` ORDER BY i.created_at DESC`;

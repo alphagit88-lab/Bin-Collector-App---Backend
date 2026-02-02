@@ -68,15 +68,19 @@ const getInvoiceByInvoiceId = async (req, res) => {
       });
     }
 
-    // Fetch order items for this invoice's service request
-    const OrderItem = require('../models/OrderItem');
-    const orderItems = await OrderItem.findByServiceRequest(invoice.service_request_id);
+    // Optional: Fetch payout details if needed
+    let payout = null;
+    if (invoice.payout_id) {
+      const pool = require('../config/database');
+      const result = await pool.query('SELECT * FROM payouts WHERE id = $1', [invoice.payout_id]);
+      payout = result.rows[0];
+    }
 
     res.json({
       success: true,
-      data: { 
+      data: {
         invoice,
-        orderItems: orderItems || []
+        payout
       },
     });
   } catch (error) {

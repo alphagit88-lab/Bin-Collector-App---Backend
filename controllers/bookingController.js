@@ -3,7 +3,6 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const SupplierWallet = require('../models/SupplierWallet');
 const SystemSetting = require('../models/SystemSetting');
-const Invoice = require('../models/Invoice');
 const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
 
@@ -285,23 +284,6 @@ const acceptRequest = async (req, res) => {
 
     const updatedRequest = await ServiceRequest.findById(id);
 
-    // Create invoice when order is confirmed
-    const invoiceId = `INV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
-    const invoice = await Invoice.create({
-      invoice_id: invoiceId,
-      service_request_id: id,
-      customer_id: request.customer_id,
-      supplier_id: supplierId,
-      total_amount: totalAmount,
-      payment_method: paymentMethod,
-      payment_status: paymentMethod === 'online' ? 'paid' : 'unpaid',
-    });
-
-    // Update service request with invoice_id
-    await ServiceRequest.update(id, {
-      invoice_id: invoiceId,
-    });
-
     let transaction = null;
     let netAmount = null;
 
@@ -332,12 +314,6 @@ const acceptRequest = async (req, res) => {
         description: `Payment for ${request.request_id}`,
       });
 
-      // Update invoice payment status
-      await Invoice.update(invoice.id, {
-        payment_status: 'paid',
-        paid_at: new Date(),
-      });
-
       // Update request payment status
       await ServiceRequest.update(id, {
         payment_status: 'paid',
@@ -364,7 +340,6 @@ const acceptRequest = async (req, res) => {
     if (io) {
       io.to(`customer_${request.customer_id}`).emit('request_accepted', {
         request: updatedRequest,
-        invoice,
       });
 
       if (transaction && netAmount !== null) {
@@ -381,7 +356,6 @@ const acceptRequest = async (req, res) => {
       message: 'Request accepted and confirmed successfully',
       data: {
         request: updatedRequest,
-        invoice,
         transaction: transaction || null
       },
     });
@@ -401,7 +375,7 @@ const updateRequestStatus = async (req, res) => {
     const { id } = req.params;
     const { status, bin_codes } = req.body; // bin_codes array required when status is 'on_delivery' (loaded)
     const PhysicalBin = require('../models/PhysicalBin');
-    const Invoice = require('../models/Invoice');
+    const OrderItem = require('../models/OrderItem');
     const Transaction = require('../models/Transaction');
     const SupplierWallet = require('../models/SupplierWallet');
     const SystemSetting = require('../models/SystemSetting');
@@ -468,7 +442,6 @@ const updateRequestStatus = async (req, res) => {
       }
 
       if (binIds.length > 0) {
-        const OrderItem = require('../models/OrderItem');
         const pool = require('../config/database');
 
         // Check if bins are assigned to other requests
@@ -590,55 +563,46 @@ const updateRequestStatus = async (req, res) => {
           orderItemStatus = 'delivered';
           binStatus = 'delivered';
           // If cash order, collect payment now
-          if (request.payment_method === 'cash') {
-            const invoice = await Invoice.findByServiceRequest(id);
-            if (invoice && invoice.payment_status === 'unpaid') {
-              const commissionSetting = await SystemSetting.findByKey('platform_commission_percentage');
-              const commissionPercentage = commissionSetting
-                ? parseFloat(commissionSetting.value) / 100
-                : 0.15;
+          if (request.payment_method === 'cash' && request.payment_status === 'pending') {
+            const commissionSetting = await SystemSetting.findByKey('platform_commission_percentage');
+            const commissionPercentage = commissionSetting
+              ? parseFloat(commissionSetting.value) / 100
+              : 0.15;
 
-              const totalAmount = parseFloat(invoice.total_amount);
-              const commissionAmount = totalAmount * commissionPercentage;
-              const netAmount = totalAmount - commissionAmount;
+            const totalAmount = parseFloat(request.total_price || request.estimated_price || 0);
+            const commissionAmount = totalAmount * commissionPercentage;
+            const netAmountValue = totalAmount - commissionAmount;
 
-              // Create transaction
-              const transactionId = `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
-              const transaction = await Transaction.create({
-                transaction_id: transactionId,
-                customer_id: request.customer_id,
-                supplier_id: request.supplier_id,
-                booking_id: request.request_id,
-                amount: totalAmount,
-                commission_amount: commissionAmount,
-                net_amount: netAmount,
-                payment_method: 'cash',
-                payment_status: 'completed',
-                transaction_type: 'payment',
-                description: `Cash payment for ${request.request_id}`,
-              });
+            // Create transaction
+            const transactionId = `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
+            const transactionRecord = await Transaction.create({
+              transaction_id: transactionId,
+              customer_id: request.customer_id,
+              supplier_id: request.supplier_id,
+              booking_id: request.request_id,
+              amount: totalAmount,
+              commission_amount: commissionAmount,
+              net_amount: netAmountValue,
+              payment_method: 'cash',
+              payment_status: 'completed',
+              transaction_type: 'payment',
+              description: `Cash payment for ${request.request_id}`,
+            });
 
-              // Update invoice
-              await Invoice.update(invoice.id, {
-                payment_status: 'paid',
-                paid_at: new Date(),
-              });
+            // Update request payment status
+            await ServiceRequest.update(id, {
+              payment_status: 'paid',
+            });
 
-              // Update request payment status
-              await ServiceRequest.update(id, {
-                payment_status: 'paid',
-              });
-
-              // Credit supplier wallet
-              const wallet = await SupplierWallet.getOrCreate(request.supplier_id);
-              await SupplierWallet.addCredit(
-                wallet.id,
-                netAmount,
-                transaction.id,
-                id,
-                `Cash payment for ${request.request_id}`
-              );
-            }
+            // Credit supplier wallet
+            const wallet = await SupplierWallet.getOrCreate(request.supplier_id);
+            await SupplierWallet.addCredit(
+              wallet.id,
+              netAmountValue,
+              transactionRecord.id,
+              id,
+              `Cash payment for ${request.request_id}`
+            );
           }
           break;
         case 'ready_to_pickup':
