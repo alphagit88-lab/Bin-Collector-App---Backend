@@ -44,8 +44,26 @@ const validateLogin = [
   handleValidationErrors,
 ];
 
+
+
+const validateUpdateProfile = [
+  body('email')
+    .optional()
+    .isEmail().withMessage('Invalid email format'),
+  handleValidationErrors,
+];
+
+const validateChangePassword = [
+  body('newPassword')
+    .notEmpty().withMessage('New password is required')
+    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  handleValidationErrors,
+];
+
 module.exports = {
   validateSignup,
   validateLogin,
+  validateUpdateProfile,
+  validateChangePassword,
   handleValidationErrors,
 };

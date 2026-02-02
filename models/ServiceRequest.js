@@ -13,6 +13,9 @@ class ServiceRequest {
       end_date,
       estimated_price,
       payment_method = 'online',
+      contact_number,
+      contact_email,
+      instructions,
     } = data;
 
     const query = `
@@ -27,11 +30,14 @@ class ServiceRequest {
         end_date,
         estimated_price,
         payment_method,
+        contact_number,
+        contact_email,
+        instructions,
         status,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', NOW(), NOW())
       RETURNING *
     `;
 
@@ -46,6 +52,9 @@ class ServiceRequest {
       end_date,
       estimated_price || null,
       payment_method,
+      contact_number || null,
+      contact_email || null,
+      instructions || null,
     ];
 
     const result = await pool.query(query, values);
@@ -197,7 +206,17 @@ class ServiceRequest {
   }
 
   static async update(id, updates) {
-    const allowedUpdates = ['supplier_id', 'status', 'payment_status', 'bin_id', 'payment_method', 'invoice_id'];
+    const allowedUpdates = [
+      'supplier_id',
+      'status',
+      'payment_status',
+      'bin_id',
+      'payment_method',
+      'invoice_id',
+      'contact_number',
+      'contact_email',
+      'instructions'
+    ];
     const updateFields = [];
     const values = [];
     let paramCount = 1;

@@ -119,6 +119,15 @@ class User {
     return await bcrypt.compare(password, user.password_hash);
   }
 
+  static async hashPassword(password) {
+    return await bcrypt.hash(password, 10);
+  }
+
+  static async updatePassword(id, hashedPassword) {
+    const query = 'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2';
+    await pool.query(query, [hashedPassword, id]);
+  }
+
   // Find suppliers who have available bins matching the requirements (single bin)
   static async findQualifiedSuppliers(binTypeId, binSizeId, location = null) {
     const query = `
@@ -148,7 +157,7 @@ class User {
   static async findQualifiedSuppliersForMultipleBins(orderItems, location = null) {
     // Build a query that checks if supplier has at least the required quantity for each bin type/size combination
     // We'll use a CTE to count available bins per supplier per type/size, then filter suppliers who have all required bins
-    
+
     const binRequirements = orderItems.map((item) => ({
       bin_type_id: parseInt(item.bin_type_id),
       bin_size_id: parseInt(item.bin_size_id),

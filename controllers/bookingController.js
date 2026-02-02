@@ -17,6 +17,9 @@ const createServiceRequest = async (req, res) => {
       start_date,
       end_date,
       payment_method = 'online', // Default to online
+      contact_number,
+      contact_email,
+      instructions,
     } = req.body;
 
     const customerId = req.user.id;
@@ -76,6 +79,9 @@ const createServiceRequest = async (req, res) => {
       end_date,
       estimated_price: estimatedPrice,
       payment_method,
+      contact_number,
+      contact_email,
+      instructions,
     });
 
     // Create order items for all bins - ALL linked to the SAME service_request
@@ -112,7 +118,7 @@ const createServiceRequest = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Service request created successfully',
-      data: { 
+      data: {
         serviceRequest: {
           ...serviceRequest,
           payment_method: payment_method || 'online',
@@ -373,7 +379,7 @@ const acceptRequest = async (req, res) => {
     res.json({
       success: true,
       message: 'Request accepted and confirmed successfully',
-      data: { 
+      data: {
         request: updatedRequest,
         invoice,
         transaction: transaction || null
@@ -420,7 +426,7 @@ const updateRequestStatus = async (req, res) => {
     if (status === 'on_delivery') {
       // Get all order items for this request
       const orderItems = await OrderItem.findByServiceRequest(id);
-      
+
       if (orderItems.length === 0) {
         return res.status(400).json({
           success: false,
@@ -429,8 +435,8 @@ const updateRequestStatus = async (req, res) => {
       }
 
       // Support legacy single bin_code format
-      const binCodesArray = bin_codes && Array.isArray(bin_codes) 
-        ? bin_codes 
+      const binCodesArray = bin_codes && Array.isArray(bin_codes)
+        ? bin_codes
         : (req.body.bin_code ? [req.body.bin_code] : []);
 
       if (binCodesArray.length !== orderItems.length) {
@@ -464,7 +470,7 @@ const updateRequestStatus = async (req, res) => {
       if (binIds.length > 0) {
         const OrderItem = require('../models/OrderItem');
         const pool = require('../config/database');
-        
+
         // Check if bins are assigned to other requests
         const alreadyAssignedQuery = `
           SELECT oi.id, oi.service_request_id, pb.bin_code
@@ -475,7 +481,7 @@ const updateRequestStatus = async (req, res) => {
             AND oi.service_request_id != $2
         `;
         const alreadyAssigned = await pool.query(alreadyAssignedQuery, [binIds, id]);
-        
+
         if (alreadyAssigned.rows.length > 0) {
           const assignedBins = alreadyAssigned.rows.map(r => r.bin_code).join(', ');
           return res.status(400).json({
@@ -494,7 +500,7 @@ const updateRequestStatus = async (req, res) => {
             AND oi.physical_bin_id IS NOT NULL
         `;
         const sameRequestAssigned = await pool.query(sameRequestQuery, [binIds, id]);
-        
+
         if (sameRequestAssigned.rows.length > 0) {
           const assignedBins = sameRequestAssigned.rows.map(r => r.bin_code).join(', ');
           return res.status(400).json({
@@ -555,7 +561,7 @@ const updateRequestStatus = async (req, res) => {
       }
 
       // Update request status
-      await ServiceRequest.update(id, { 
+      await ServiceRequest.update(id, {
         status: 'on_delivery',
       });
     } else {
@@ -742,7 +748,7 @@ const getOrderItems = async (req, res) => {
   try {
     const { id } = req.params;
     const request = await ServiceRequest.findById(id);
-    
+
     if (!request) {
       return res.status(404).json({
         success: false,

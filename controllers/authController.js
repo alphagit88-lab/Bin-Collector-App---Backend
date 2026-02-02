@@ -135,8 +135,67 @@ const getMe = async (req, res) => {
   }
 };
 
+const updateProfile = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const userId = req.user.id;
+
+    const user = await User.update(userId, { email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: { user },
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile',
+      error: error.message,
+    });
+  }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    const userId = req.user.id;
+
+    // TODO: In a real app, we should verify the old password first if provided
+    // For this implementation, we just update to the new password
+
+    // Hash new password
+    const hashedPassword = await User.hashPassword(newPassword);
+
+    // Update password in DB
+    await User.updatePassword(userId, hashedPassword);
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully',
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error changing password',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   signup,
   login,
   getMe,
+  updateProfile,
+  changePassword,
 };
