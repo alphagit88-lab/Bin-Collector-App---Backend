@@ -5,6 +5,7 @@ const SupplierWallet = require('../models/SupplierWallet');
 const SystemSetting = require('../models/SystemSetting');
 const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
+const { sendPushNotifications } = require('../utils/pushNotification');
 
 // Create service request (customer orders bins - supports multiple bins)
 const createServiceRequest = async (req, res) => {
@@ -128,6 +129,29 @@ const createServiceRequest = async (req, res) => {
         // Socket notification
         io.to(`supplier_${supplier.id}`).emit('new_request', payload);
       });
+
+      // Send Push Notifications to qualified suppliers
+      const pushTokens = qualifiedSuppliers.map(s => s.pushToken).filter(token => token);
+      console.log('Qualified Suppliers with tokens:', pushTokens.length, 'Total Qualified:', qualifiedSuppliers.length);
+      console.log('Supplier tokens:', pushTokens);
+
+      if (pushTokens.length > 0) {
+        const title = 'New Service Request';
+        const body = items.length > 1
+          ? `New request for ${items.length} bins available near ${fullRequest.location}`
+          : `New request: ${fullRequest.bin_type_name} available near ${fullRequest.location}`;
+
+        console.log('Sending Push Notification:', { title, body, count: pushTokens.length });
+
+        sendPushNotifications(pushTokens, title, body, {
+          requestId: fullRequest.id,
+          type: 'new_request'
+        })
+          .then(tickets => console.log('Push notification tickets:', tickets))
+          .catch(err => console.error('Push notification error:', err));
+      } else {
+        console.log('No push tokens available for qualified suppliers.');
+      }
     }
 
     res.status(201).json({
@@ -712,6 +736,18 @@ const updateRequestStatus = async (req, res) => {
       });
     }
 
+    // Push Notification to Customer
+    if (updatedRequest.customer_push_token) {
+      const title = 'Booking Status Updated';
+      const body = `Your booking #${updatedRequest.request_id.slice(-5).toUpperCase()} status is now ${updatedRequest.status.replace(/_/g, ' ')}`;
+
+      sendPushNotifications(updatedRequest.customer_push_token, title, body, {
+        requestId: updatedRequest.id,
+        status: updatedRequest.status,
+        type: 'status_update'
+      }).catch(err => console.error('Push notification error:', err));
+    }
+
     res.json({
       success: true,
       message: 'Request status updated successfully',
@@ -820,6 +856,17 @@ const markReadyToPickup = async (req, res) => {
       io.to(`supplier_${request.supplier_id}`).emit('request_ready_to_pickup', {
         request: updatedRequest,
       });
+    }
+
+    // Push Notification to Supplier
+    if (updatedRequest.supplier_push_token) {
+      const title = 'Bin Ready for Pickup';
+      const body = `Bin(s) at ${updatedRequest.location} are ready for pickup.`;
+
+      sendPushNotifications(updatedRequest.supplier_push_token, title, body, {
+        requestId: updatedRequest.id,
+        type: 'ready_to_pickup'
+      }).catch(err => console.error('Push notification error:', err));
     }
 
     res.json({

@@ -72,6 +72,8 @@ class ServiceRequest {
         c.phone AS customer_phone,
         s.name AS supplier_name,
         s.phone AS supplier_phone,
+        c.push_token AS customer_push_token,
+        s.push_token AS supplier_push_token,
         pb.bin_code,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id
       FROM service_requests sr
@@ -95,6 +97,8 @@ class ServiceRequest {
         bs.size AS bin_size,
         c.name AS customer_name,
         s.name AS supplier_name,
+        c.push_token AS customer_push_token,
+        s.push_token AS supplier_push_token,
         pb.bin_code,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id
       FROM service_requests sr
