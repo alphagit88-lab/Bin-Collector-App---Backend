@@ -21,7 +21,7 @@ const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
     const user = await User.findById(id);
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -49,7 +49,7 @@ const updateUser = async (req, res) => {
     const { name, email, role } = req.body;
 
     const user = await User.update(id, { name, email, role });
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -75,7 +75,7 @@ const updateUser = async (req, res) => {
 const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Prevent deleting yourself
     if (parseInt(id) === req.user.id) {
       return res.status(400).json({
@@ -85,7 +85,7 @@ const deleteUser = async (req, res) => {
     }
 
     const user = await User.delete(id);
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -107,9 +107,45 @@ const deleteUser = async (req, res) => {
   }
 };
 
+const updatePushToken = async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    const userId = req.user.id;
+
+    if (!pushToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Push token is required',
+      });
+    }
+
+    const user = await User.updatePushToken(userId, pushToken);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Push token updated successfully',
+    });
+  } catch (error) {
+    console.error('Update push token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating push token',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUser,
+  updatePushToken,
   deleteUser,
 };

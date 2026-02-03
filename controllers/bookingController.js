@@ -102,15 +102,31 @@ const createServiceRequest = async (req, res) => {
     // Find qualified suppliers (those with ALL required bins available)
     const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, location);
 
+    // Fetch the full request with names for notification
+    const fullRequest = await ServiceRequest.findById(serviceRequest.id);
+
+    // Fetch individual items to show multiple bins if ordered
+    const items = await OrderItem.findByServiceRequest(serviceRequest.id);
+    console.log('Fetched items for socket event:', items);
+    console.log('Items count:', items.length);
+
     // Emit notification only to qualified suppliers via Socket.io
     const io = req.app.get('io');
     if (io && qualifiedSuppliers.length > 0) {
       // Notify each qualified supplier individually
       qualifiedSuppliers.forEach((supplier) => {
-        io.to(`supplier_${supplier.id}`).emit('new_request', {
-          request: serviceRequest,
-          message: 'New service request available',
-        });
+        const payload = {
+          request: {
+            ...fullRequest,
+            items: items
+          },
+          message: items.length > 1
+            ? `New request for ${items.length} bins available near ${fullRequest.location}`
+            : `New request: ${fullRequest.bin_type_name} - ${fullRequest.bin_size} available near ${fullRequest.location}`,
+        };
+        console.log('Emitting new_request to supplier', supplier.id, 'with payload:', JSON.stringify(payload, null, 2));
+        // Socket notification
+        io.to(`supplier_${supplier.id}`).emit('new_request', payload);
       });
     }
 
@@ -118,11 +134,7 @@ const createServiceRequest = async (req, res) => {
       success: true,
       message: 'Service request created successfully',
       data: {
-        serviceRequest: {
-          ...serviceRequest,
-          payment_method: payment_method || 'online',
-          orderItems: createdOrderItems,
-        },
+        request: fullRequest,
         qualifiedSuppliersCount: qualifiedSuppliers.length
       },
     });
@@ -349,6 +361,12 @@ const acceptRequest = async (req, res) => {
           amount: netAmount,
         });
       }
+
+      // Notify supplier to refresh lists
+      io.to(`supplier_${supplierId}`).emit('status_update', {
+        request: updatedRequest,
+        status: 'accepted'
+      });
     }
 
     res.json({
@@ -683,10 +701,13 @@ const updateRequestStatus = async (req, res) => {
       }
     }
 
-    // Notify customer
+    // Notify customer using the user_${id} room to match frontend
     const io = req.app.get('io');
     if (io && updatedRequest) {
-      io.to(`customer_${updatedRequest.customer_id}`).emit('request_status_updated', {
+      io.to(`user_${updatedRequest.customer_id}`).emit('status_update', {
+        booking_id: updatedRequest.id,
+        status: updatedRequest.status,
+        message: `Your booking #${updatedRequest.request_id.slice(-5).toUpperCase()} status is now ${updatedRequest.status.replace(/_/g, ' ')}`,
         request: updatedRequest,
       });
     }

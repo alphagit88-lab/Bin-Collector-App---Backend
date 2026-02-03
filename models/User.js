@@ -6,11 +6,11 @@ class User {
     const hashedPassword = await bcrypt.hash(password, 10);
     const supplier_type = role === 'supplier' ? (supplierType || null) : null;
     const query = `
-      INSERT INTO users (name, phone, email, role, supplier_type, password_hash, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", created_at, updated_at
+      INSERT INTO users (name, phone, email, role, supplier_type, password_hash, push_token, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", push_token AS "pushToken", created_at, updated_at
     `;
-    const values = [name, phone, email || null, role, supplier_type, hashedPassword];
+    const values = [name, phone, email || null, role, supplier_type, hashedPassword, null];
     const result = await pool.query(query, values);
     return result.rows[0];
   }
@@ -25,6 +25,7 @@ class User {
         role,
         supplier_type AS "supplierType",
         password_hash,
+        push_token AS "pushToken",
         created_at,
         updated_at
       FROM users
@@ -43,6 +44,7 @@ class User {
         email, 
         role,
         supplier_type AS "supplierType",
+        push_token AS "pushToken",
         created_at, 
         updated_at 
       FROM users 
@@ -103,9 +105,15 @@ class User {
       UPDATE users 
       SET ${updates.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", created_at, updated_at
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", push_token AS "pushToken", created_at, updated_at
     `;
     const result = await pool.query(query, values);
+    return result.rows[0];
+  }
+
+  static async updatePushToken(id, pushToken) {
+    const query = 'UPDATE users SET push_token = $1, updated_at = NOW() WHERE id = $2 RETURNING id';
+    const result = await pool.query(query, [pushToken, id]);
     return result.rows[0];
   }
 
@@ -136,6 +144,7 @@ class User {
         u.name,
         u.phone,
         u.email,
+        u.push_token AS "pushToken",
         COUNT(pb.id) as available_bin_count
       FROM users u
       INNER JOIN physical_bins pb ON u.id = pb.supplier_id
@@ -227,7 +236,8 @@ class User {
         u.id,
         u.name,
         u.phone,
-        u.email
+        u.email,
+        u.push_token AS "pushToken"
       FROM users u
       WHERE u.role = 'supplier'
         AND u.id IN (

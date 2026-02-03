@@ -142,7 +142,21 @@ class ServiceRequest {
     }
 
     const result = await pool.query(query, values);
-    return result.rows;
+    const requests = result.rows;
+
+    // Fetch items for each request
+    for (let i = 0; i < requests.length; i++) {
+      const items = await pool.query(`
+        SELECT oi.*, bt.name as bin_type_name, bs.size as bin_size
+        FROM order_items oi
+        LEFT JOIN bin_types bt ON oi.bin_type_id = bt.id
+        LEFT JOIN bin_sizes bs ON oi.bin_size_id = bs.id
+        WHERE oi.service_request_id = $1
+      `, [requests[i].id]);
+      requests[i].items = items.rows;
+    }
+
+    return requests;
   }
 
   static async findBySupplier(supplierId, filters = {}) {
@@ -180,7 +194,21 @@ class ServiceRequest {
     }
 
     const result = await pool.query(query, values);
-    return result.rows;
+    const requests = result.rows;
+
+    // Fetch items for each request
+    for (let i = 0; i < requests.length; i++) {
+      const items = await pool.query(`
+        SELECT oi.*, bt.name as bin_type_name, bs.size as bin_size
+        FROM order_items oi
+        LEFT JOIN bin_types bt ON oi.bin_type_id = bt.id
+        LEFT JOIN bin_sizes bs ON oi.bin_size_id = bs.id
+        WHERE oi.service_request_id = $1
+      `, [requests[i].id]);
+      requests[i].items = items.rows;
+    }
+
+    return requests;
   }
 
   static async findPendingForSuppliers() {
@@ -202,7 +230,21 @@ class ServiceRequest {
       ORDER BY sr.created_at DESC
     `;
     const result = await pool.query(query);
-    return result.rows;
+    const requests = result.rows;
+
+    // Fetch items for each request
+    for (let i = 0; i < requests.length; i++) {
+      const items = await pool.query(`
+        SELECT oi.*, bt.name as bin_type_name, bs.size as bin_size
+        FROM order_items oi
+        LEFT JOIN bin_types bt ON oi.bin_type_id = bt.id
+        LEFT JOIN bin_sizes bs ON oi.bin_size_id = bs.id
+        WHERE oi.service_request_id = $1
+      `, [requests[i].id]);
+      requests[i].items = items.rows;
+    }
+
+    return requests;
   }
 
   static async update(id, updates) {

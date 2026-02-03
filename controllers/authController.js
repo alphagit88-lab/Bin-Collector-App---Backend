@@ -192,10 +192,46 @@ const changePassword = async (req, res) => {
   }
 };
 
+const updatePushToken = async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    const userId = req.user.id;
+
+    if (!pushToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Push token is required',
+      });
+    }
+
+    const user = await User.updatePushToken(userId, pushToken);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Push token updated successfully',
+    });
+  } catch (error) {
+    console.error('Update push token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating push token',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   signup,
   login,
   getMe,
   updateProfile,
   changePassword,
+  updatePushToken,
 };
