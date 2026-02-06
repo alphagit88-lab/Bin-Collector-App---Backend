@@ -75,7 +75,8 @@ class ServiceRequest {
         c.push_token AS customer_push_token,
         s.push_token AS supplier_push_token,
         pb.bin_code,
-        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id
+        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
+        b.bill_id
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
@@ -83,6 +84,7 @@ class ServiceRequest {
       LEFT JOIN users s ON sr.supplier_id = s.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
+      LEFT JOIN bills b ON sr.id = b.service_request_id
       WHERE sr.id = $1
     `;
     const result = await pool.query(query, [id]);
@@ -100,7 +102,8 @@ class ServiceRequest {
         c.push_token AS customer_push_token,
         s.push_token AS supplier_push_token,
         pb.bin_code,
-        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id
+        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
+        b.bill_id
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
@@ -108,6 +111,7 @@ class ServiceRequest {
       LEFT JOIN users s ON sr.supplier_id = s.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
+      LEFT JOIN bills b ON sr.id = b.service_request_id
       WHERE sr.request_id = $1
     `;
     const result = await pool.query(query, [requestId]);
@@ -314,6 +318,7 @@ class ServiceRequest {
         s.name AS supplier_name,
         s.phone AS supplier_phone,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
+        b.bill_id,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
@@ -321,6 +326,7 @@ class ServiceRequest {
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
+      LEFT JOIN bills b ON sr.id = b.service_request_id
       WHERE 1=1
     `;
     const values = [];

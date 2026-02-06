@@ -6,6 +6,7 @@ const SystemSetting = require('../models/SystemSetting');
 const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
 const { sendPushNotifications } = require('../utils/pushNotification');
+const Bill = require('../models/Bill');
 
 // Create service request (customer orders bins - supports multiple bins)
 const createServiceRequest = async (req, res) => {
@@ -316,6 +317,18 @@ const acceptRequest = async (req, res) => {
     await ServiceRequest.update(id, {
       supplier_id: supplierId,
       status: 'confirmed',
+    });
+
+    // Create a bill for the confirmed booking
+    const billId = `BILL-${Date.now().toString(36).toUpperCase()}`;
+    await Bill.create({
+      bill_id: billId,
+      service_request_id: id,
+      customer_id: request.customer_id,
+      supplier_id: supplierId,
+      total_amount: totalAmount,
+      payment_method: paymentMethod,
+      payment_status: paymentMethod === 'online' ? 'paid' : 'unpaid'
     });
 
     const updatedRequest = await ServiceRequest.findById(id);
@@ -635,6 +648,15 @@ const updateRequestStatus = async (req, res) => {
             await ServiceRequest.update(id, {
               payment_status: 'paid',
             });
+
+            // Update associated bill status
+            const bill = await Bill.findByServiceRequestId(id);
+            if (bill) {
+              await Bill.update(bill.id, {
+                payment_status: 'paid',
+                paid_at: new Date()
+              });
+            }
 
             // Credit supplier wallet
             const wallet = await SupplierWallet.getOrCreate(request.supplier_id);

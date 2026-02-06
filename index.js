@@ -14,6 +14,7 @@ const transactionRoutes = require('./routes/transactionRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
+const billRoutes = require('./routes/billRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -70,6 +71,7 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/bills', billRoutes);
 
 // 404 handler
 app.use((req, res) => {
