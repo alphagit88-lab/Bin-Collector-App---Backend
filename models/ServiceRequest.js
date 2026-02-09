@@ -219,8 +219,8 @@ class ServiceRequest {
     return requests;
   }
 
-  static async findPendingForSuppliers() {
-    const query = `
+  static async findPendingForSuppliers(supplierId) {
+    let query = `
       SELECT 
         sr.*,
         bt.name AS bin_type_name,
@@ -235,9 +235,26 @@ class ServiceRequest {
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       WHERE sr.status = 'pending' AND sr.supplier_id IS NULL
-      ORDER BY sr.created_at DESC
     `;
-    const result = await pool.query(query);
+
+    const values = [];
+
+    if (supplierId) {
+      values.push(supplierId);
+      // Filter by service area coverage
+      // Check if sr.location contains any of the supplier's service area cities (case-insensitive)
+      query += `
+        AND EXISTS (
+            SELECT 1 FROM service_areas sa
+            WHERE sa.supplier_id = $1
+            AND sr.location ILIKE '%' || sa.city || '%'
+        )
+      `;
+    }
+
+    query += ` ORDER BY sr.created_at DESC`;
+
+    const result = await pool.query(query, values);
     const requests = result.rows;
 
     // Fetch items for each request

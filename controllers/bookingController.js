@@ -67,6 +67,17 @@ const createServiceRequest = async (req, res) => {
     // Use first bin's type/size for backward compatibility with service_requests table
     const firstBin = orderItems[0];
 
+    // Check for qualified suppliers BEFORE creating the request
+    // This now checks for both bin availability AND location service area coverage
+    const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, location);
+
+    if (qualifiedSuppliers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service unavailable: No suppliers found in your area with the requested bins.',
+      });
+    }
+
     console.log('Creating ONE service request with ID:', requestId, 'for', orderItems.length, 'bin type(s)');
 
     const serviceRequest = await ServiceRequest.create({
@@ -100,9 +111,6 @@ const createServiceRequest = async (req, res) => {
     }
 
     console.log(`Created ${createdOrderItems.length} order item(s) for service request ${serviceRequest.id}`);
-
-    // Find qualified suppliers (those with ALL required bins available)
-    const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, location);
 
     // Fetch the full request with names for notification
     const fullRequest = await ServiceRequest.findById(serviceRequest.id);
@@ -220,7 +228,8 @@ const getSupplierRequests = async (req, res) => {
 // Get pending requests for suppliers
 const getPendingRequests = async (req, res) => {
   try {
-    const requests = await ServiceRequest.findPendingForSuppliers();
+    const supplierId = req.user.id;
+    const requests = await ServiceRequest.findPendingForSuppliers(supplierId);
 
     // Fetch order items for each request
     const requestsWithItems = await Promise.all(

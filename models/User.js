@@ -259,7 +259,7 @@ class User {
         AND EXISTS (
           SELECT 1 FROM service_areas sa
           WHERE sa.supplier_id = u.id
-          AND ($${locationParam} ILIKE '%' || sa.city || '%' OR $${locationParam} ILIKE '%' || sa.country || '%')
+          AND $${locationParam} ILIKE '%' || sa.city || '%'
         )
       `;
     }
