@@ -246,10 +246,25 @@ class User {
           GROUP BY sr.supplier_id
           HAVING COUNT(DISTINCT (sr.bin_type_id, sr.bin_size_id)) = $${paramCount}
         )
-      ORDER BY u.name
     `;
 
     values.push(binRequirements.length); // Number of unique bin requirements
+
+    // Add location filtering if location is provided
+    if (location) {
+      values.push(location);
+      const locationParam = values.length;
+
+      query += `
+        AND EXISTS (
+          SELECT 1 FROM service_areas sa
+          WHERE sa.supplier_id = u.id
+          AND ($${locationParam} ILIKE '%' || sa.city || '%' OR $${locationParam} ILIKE '%' || sa.country || '%')
+        )
+      `;
+    }
+
+    query += ` ORDER BY u.name`;
 
     const result = await pool.query(query, values);
     return result.rows;
