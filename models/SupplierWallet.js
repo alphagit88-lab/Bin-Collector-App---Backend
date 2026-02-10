@@ -60,6 +60,48 @@ class SupplierWallet {
     }
   }
 
+  static async addDebit(walletId, amount, transactionId, serviceRequestId, description) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Add wallet transaction
+      const transactionQuery = `
+        INSERT INTO wallet_transactions (
+          wallet_id,
+          transaction_id,
+          service_request_id,
+          amount,
+          transaction_type,
+          description,
+          status,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, 'debit', $5, 'completed', NOW())
+        RETURNING *
+      `;
+      await client.query(transactionQuery, [walletId, transactionId, serviceRequestId, amount, description]);
+
+      // Update wallet balance (subtract the amount)
+      const updateQuery = `
+        UPDATE supplier_wallets
+        SET balance = balance - $1,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING *
+      `;
+      const result = await client.query(updateQuery, [amount, walletId]);
+
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   static async requestPayout(walletId, amount, paymentMethod, bankDetails) {
     const client = await pool.connect();
     try {
@@ -228,39 +270,70 @@ class SupplierWallet {
   }
 
   static async updatePayoutStatus(payoutId, status, adminNotes = null) {
-    const query = `
-      UPDATE payouts
-      SET status = $1,
-          admin_notes = $2,
-          updated_at = NOW()
-      WHERE id = $3
-      RETURNING *
-    `;
-    const result = await pool.query(query, [status, adminNotes, payoutId]);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // If approved, update wallet pending balance
-    if (status === 'approved') {
+      // Update payout status and admin notes
+      // Also update processed_at if approved
+      let updatePayoutQuery = `
+        UPDATE payouts
+        SET status = $1,
+            admin_notes = $2,
+            updated_at = NOW()
+      `;
+
+      if (status === 'approved') {
+        updatePayoutQuery += `, processed_at = NOW()`;
+      }
+
+      updatePayoutQuery += ` WHERE id = $3 RETURNING *`;
+
+      const result = await client.query(updatePayoutQuery, [status, adminNotes, payoutId]);
+
+      if (result.rows.length === 0) {
+        throw new Error('Payout not found');
+      }
+
       const payout = result.rows[0];
-      await pool.query(
-        `UPDATE supplier_wallets 
-         SET pending_balance = pending_balance - $1, updated_at = NOW()
-         WHERE id = $2`,
-        [payout.amount, payout.wallet_id]
-      );
-    } else if (status === 'rejected') {
-      // If rejected, return balance back
-      const payout = result.rows[0];
-      await pool.query(
-        `UPDATE supplier_wallets 
-         SET balance = balance + $1, 
-             pending_balance = pending_balance - $1, 
-             updated_at = NOW()
-         WHERE id = $2`,
-        [payout.amount, payout.wallet_id]
-      );
+
+      // If approved, update wallet pending balance and related invoice
+      if (status === 'approved') {
+        // 1. Update wallet balance
+        await client.query(
+          `UPDATE supplier_wallets 
+           SET pending_balance = pending_balance - $1, updated_at = NOW()
+           WHERE id = $2`,
+          [payout.amount, payout.wallet_id]
+        );
+
+        // 2. Update linked invoice to paid
+        await client.query(
+          `UPDATE invoices 
+           SET payment_status = 'paid', paid_at = NOW(), updated_at = NOW()
+           WHERE payout_id = $1`,
+          [payout.id]
+        );
+      } else if (status === 'rejected') {
+        // If rejected, return balance back to available balance
+        await client.query(
+          `UPDATE supplier_wallets 
+           SET balance = balance + $1, 
+               pending_balance = pending_balance - $1, 
+               updated_at = NOW()
+           WHERE id = $2`,
+          [payout.amount, payout.wallet_id]
+        );
+      }
+
+      await client.query('COMMIT');
+      return payout;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
-
-    return result.rows[0];
   }
 }
 

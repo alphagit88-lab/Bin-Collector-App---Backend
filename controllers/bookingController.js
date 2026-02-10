@@ -118,7 +118,6 @@ const createServiceRequest = async (req, res) => {
     // Fetch individual items to show multiple bins if ordered
     const items = await OrderItem.findByServiceRequest(serviceRequest.id);
     console.log('Fetched items for socket event:', items);
-    console.log('Items count:', items.length);
 
     // Emit notification only to qualified suppliers via Socket.io
     const io = req.app.get('io');
@@ -134,7 +133,6 @@ const createServiceRequest = async (req, res) => {
             ? `New request for ${items.length} bins available near ${fullRequest.location}`
             : `New request: ${fullRequest.bin_type_name} - ${fullRequest.bin_size} available near ${fullRequest.location}`,
         };
-        console.log('Emitting new_request to supplier', supplier.id, 'with payload:', JSON.stringify(payload, null, 2));
         // Socket notification
         io.to(`supplier_${supplier.id}`).emit('new_request', payload);
       });
@@ -142,7 +140,6 @@ const createServiceRequest = async (req, res) => {
       // Send Push Notifications to qualified suppliers
       const pushTokens = qualifiedSuppliers.map(s => s.pushToken).filter(token => token);
       console.log('Qualified Suppliers with tokens:', pushTokens.length, 'Total Qualified:', qualifiedSuppliers.length);
-      console.log('Supplier tokens:', pushTokens);
 
       if (pushTokens.length > 0) {
         const title = 'New Service Request';
@@ -667,14 +664,14 @@ const updateRequestStatus = async (req, res) => {
               });
             }
 
-            // Credit supplier wallet
+            // Deduct commission from supplier wallet (since they already collected full cash)
             const wallet = await SupplierWallet.getOrCreate(request.supplier_id);
-            await SupplierWallet.addCredit(
+            await SupplierWallet.addDebit(
               wallet.id,
-              netAmountValue,
+              commissionAmount,
               transactionRecord.id,
               id,
-              `Cash payment for ${request.request_id}`
+              `Platform commission for cash payment ${request.request_id}`
             );
           }
           break;

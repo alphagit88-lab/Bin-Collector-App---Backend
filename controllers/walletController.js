@@ -102,10 +102,15 @@ const getPayouts = async (req, res) => {
 const getAllWallets = async (req, res) => {
   try {
     const wallets = await SupplierWallet.findAllWallets();
+    const Transaction = require('../models/Transaction');
+    const stats = await Transaction.getStats();
 
     res.json({
       success: true,
-      data: { wallets },
+      data: {
+        wallets,
+        stats
+      },
     });
   } catch (error) {
     console.error('Get all wallets error:', error);
