@@ -16,7 +16,7 @@ class PhysicalBin {
         sr.location as current_location
       FROM physical_bins pb
       JOIN bin_types bt ON pb.bin_type_id = bt.id
-      JOIN bin_sizes bs ON pb.bin_size_id = bs.id
+      LEFT JOIN bin_sizes bs ON pb.bin_size_id = bs.id
       LEFT JOIN users u_supplier ON pb.supplier_id = u_supplier.id
       LEFT JOIN users u_customer ON pb.current_customer_id = u_customer.id
       LEFT JOIN service_requests sr ON pb.current_service_request_id = sr.id
@@ -70,7 +70,7 @@ class PhysicalBin {
         sr.location as current_location
       FROM physical_bins pb
       JOIN bin_types bt ON pb.bin_type_id = bt.id
-      JOIN bin_sizes bs ON pb.bin_size_id = bs.id
+      LEFT JOIN bin_sizes bs ON pb.bin_size_id = bs.id
       LEFT JOIN users u_supplier ON pb.supplier_id = u_supplier.id
       LEFT JOIN users u_customer ON pb.current_customer_id = u_customer.id
       LEFT JOIN service_requests sr ON pb.current_service_request_id = sr.id
@@ -95,7 +95,7 @@ class PhysicalBin {
         sr.location as current_location
       FROM physical_bins pb
       JOIN bin_types bt ON pb.bin_type_id = bt.id
-      JOIN bin_sizes bs ON pb.bin_size_id = bs.id
+      LEFT JOIN bin_sizes bs ON pb.bin_size_id = bs.id
       LEFT JOIN users u_supplier ON pb.supplier_id = u_supplier.id
       LEFT JOIN users u_customer ON pb.current_customer_id = u_customer.id
       LEFT JOIN service_requests sr ON pb.current_service_request_id = sr.id
@@ -182,13 +182,13 @@ class PhysicalBin {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code;
     let exists = true;
-    
+
     while (exists) {
       code = 'BIN-' + Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
       const existing = await pool.query('SELECT id FROM physical_bins WHERE bin_code = $1', [code]);
       exists = existing.rows.length > 0;
     }
-    
+
     return code;
   }
 }

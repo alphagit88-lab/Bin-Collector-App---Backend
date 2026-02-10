@@ -5,14 +5,14 @@ const pool = require('../config/database');
 exports.getAllBins = async (req, res) => {
   try {
     const filters = {};
-    
+
     // If user is supplier, only show their bins
     if (req.user.role === 'supplier') {
       filters.supplier_id = req.user.id;
     } else if (req.query.supplier_id) {
       filters.supplier_id = parseInt(req.query.supplier_id);
     }
-    
+
     if (req.query.status) filters.status = req.query.status;
     if (req.query.bin_code) filters.bin_code = req.query.bin_code;
     if (req.query.bin_type_id) filters.bin_type_id = parseInt(req.query.bin_type_id);
@@ -59,8 +59,8 @@ exports.createBin = async (req, res) => {
   try {
     const { bin_code, bin_type_id, bin_size_id, supplier_id, status, notes } = req.body;
 
-    if (!bin_type_id || !bin_size_id) {
-      return res.status(400).json({ success: false, message: 'Bin type and size are required' });
+    if (!bin_type_id) {
+      return res.status(400).json({ success: false, message: 'Bin type is required' });
     }
 
     // If user is supplier, assign bin to themselves
@@ -138,7 +138,7 @@ exports.updateBin = async (req, res) => {
 exports.deleteBin = async (req, res) => {
   try {
     const binId = parseInt(req.params.id);
-    
+
     // Check if bin is in use
     const bin = await PhysicalBin.findById(binId);
     if (!bin) {

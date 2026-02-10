@@ -85,7 +85,7 @@ const createServiceRequest = async (req, res) => {
       customer_id: customerId,
       service_category,
       bin_type_id: parseInt(firstBin.bin_type_id),
-      bin_size_id: parseInt(firstBin.bin_size_id),
+      bin_size_id: firstBin.bin_size_id ? parseInt(firstBin.bin_size_id) : null,
       location,
       start_date,
       end_date,
@@ -103,7 +103,7 @@ const createServiceRequest = async (req, res) => {
         const orderItem = await OrderItem.create({
           service_request_id: serviceRequest.id, // All items use the same service_request_id
           bin_type_id: parseInt(item.bin_type_id),
-          bin_size_id: parseInt(item.bin_size_id),
+          bin_size_id: item.bin_size_id ? parseInt(item.bin_size_id) : null,
           status: 'pending',
         });
         createdOrderItems.push(orderItem);

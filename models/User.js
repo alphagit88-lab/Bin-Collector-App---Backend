@@ -150,7 +150,7 @@ class User {
       INNER JOIN physical_bins pb ON u.id = pb.supplier_id
       WHERE u.role = 'supplier'
         AND pb.bin_type_id = $1
-        AND pb.bin_size_id = $2
+        AND pb.bin_size_id IS NOT DISTINCT FROM $2
         AND pb.status = 'available'
         AND pb.supplier_id IS NOT NULL
       GROUP BY u.id, u.name, u.phone, u.email
@@ -199,7 +199,7 @@ class User {
       const param1 = paramCount++;
       const param2 = paramCount++;
       values.push(req.bin_type_id, req.bin_size_id);
-      return `(pb.bin_type_id = $${param1} AND pb.bin_size_id = $${param2})`;
+      return `(pb.bin_type_id = $${param1} AND pb.bin_size_id IS NOT DISTINCT FROM $${param2})`;
     });
 
     query += conditions.join(' OR ');
@@ -229,7 +229,7 @@ class User {
 
     query += `
           SELECT * FROM (VALUES ${requirementValues.join(', ')}) AS req(bin_type_id, bin_size_id, required_quantity)
-        ) req ON sbc.bin_type_id = req.bin_type_id AND sbc.bin_size_id = req.bin_size_id
+        ) req ON sbc.bin_type_id = req.bin_type_id AND sbc.bin_size_id IS NOT DISTINCT FROM req.bin_size_id
         WHERE sbc.available_count >= req.required_quantity
       )
       SELECT DISTINCT
@@ -244,7 +244,7 @@ class User {
           SELECT sr.supplier_id
           FROM supplier_requirements sr
           GROUP BY sr.supplier_id
-          HAVING COUNT(DISTINCT (sr.bin_type_id, sr.bin_size_id)) = $${paramCount}
+          HAVING COUNT(DISTINCT (sr.bin_type_id, COALESCE(sr.bin_size_id, -1))) = $${paramCount}
         )
     `;
 
