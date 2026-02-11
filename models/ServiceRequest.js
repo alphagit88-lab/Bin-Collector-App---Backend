@@ -11,6 +11,7 @@ class ServiceRequest {
       location,
       start_date,
       end_date,
+      attachment_url,
       estimated_price,
       payment_method = 'online',
       contact_number,
@@ -28,6 +29,7 @@ class ServiceRequest {
         location,
         start_date,
         end_date,
+        attachment_url,
         estimated_price,
         payment_method,
         contact_number,
@@ -37,7 +39,7 @@ class ServiceRequest {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', NOW(), NOW())
       RETURNING *
     `;
 
@@ -50,6 +52,7 @@ class ServiceRequest {
       location,
       start_date,
       end_date,
+      attachment_url || null,
       estimated_price || null,
       payment_method,
       contact_number || null,
@@ -282,7 +285,8 @@ class ServiceRequest {
       'invoice_id',
       'contact_number',
       'contact_email',
-      'instructions'
+      'instructions',
+      'attachment_url'
     ];
     const updateFields = [];
     const values = [];

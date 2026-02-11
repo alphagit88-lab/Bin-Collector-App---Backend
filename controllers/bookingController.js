@@ -11,7 +11,7 @@ const Bill = require('../models/Bill');
 // Create service request (customer orders bins - supports multiple bins)
 const createServiceRequest = async (req, res) => {
   try {
-    const {
+    let {
       service_category,
       bins, // Array of { bin_type_id, bin_size_id, quantity? }
       location,
@@ -22,6 +22,17 @@ const createServiceRequest = async (req, res) => {
       contact_email,
       instructions,
     } = req.body;
+
+    // Handle stringified JSON from FormData
+    if (typeof bins === 'string') {
+      try {
+        bins = JSON.parse(bins);
+      } catch (e) {
+        console.error('Error parsing bins JSON:', e);
+      }
+    }
+
+    const attachment_url = req.file ? `/uploads/${req.file.filename}` : null;
 
     const customerId = req.user.id;
 
@@ -89,6 +100,7 @@ const createServiceRequest = async (req, res) => {
       location,
       start_date,
       end_date,
+      attachment_url,
       estimated_price: estimatedPrice,
       payment_method,
       contact_number,
@@ -881,7 +893,10 @@ const markReadyToPickup = async (req, res) => {
     // Notify supplier
     const io = req.app.get('io');
     if (io && request.supplier_id) {
-      io.to(`supplier_${request.supplier_id}`).emit('request_ready_to_pickup', {
+      io.to(`supplier_${request.supplier_id}`).emit('status_update', {
+        booking_id: updatedRequest.id,
+        status: updatedRequest.status,
+        message: `Your booking #${updatedRequest.request_id.slice(-5).toUpperCase()} is now ready for pickup`,
         request: updatedRequest,
       });
     }

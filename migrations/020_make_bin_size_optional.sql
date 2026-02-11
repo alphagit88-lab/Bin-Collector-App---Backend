@@ -2,10 +2,10 @@
 -- This allows bin types that don't have associated sizes
 
 -- Update physical_bins
-ALTER TABLE physical_bins ALTER COLUMN bin_size_id DROP NOT NULL;
+ALTER TABLE IF EXISTS physical_bins ALTER COLUMN bin_size_id DROP NOT NULL;
 
 -- Update service_requests
-ALTER TABLE service_requests ALTER COLUMN bin_size_id DROP NOT NULL;
+ALTER TABLE IF EXISTS service_requests ALTER COLUMN bin_size_id DROP NOT NULL;
 
 -- Update order_items
-ALTER TABLE order_items ALTER COLUMN bin_size_id DROP NOT NULL;
+ALTER TABLE IF EXISTS order_items ALTER COLUMN bin_size_id DROP NOT NULL;

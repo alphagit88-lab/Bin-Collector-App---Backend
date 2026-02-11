@@ -14,8 +14,10 @@ const {
 } = require('../controllers/bookingController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
+const upload = require('../utils/upload');
+
 // Customer routes
-router.post('/', authenticate, createServiceRequest);
+router.post('/', authenticate, upload.single('attachment'), createServiceRequest);
 router.get('/my-requests', authenticate, getMyRequests);
 router.get('/:id', authenticate, getRequestById);
 router.get('/:id/order-items', authenticate, getOrderItems);
