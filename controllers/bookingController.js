@@ -7,9 +7,20 @@ const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const Bill = require('../models/Bill');
+const fs = require('fs');
+const path = require('path');
 
 // Create service request (customer orders bins - supports multiple bins)
 const createServiceRequest = async (req, res) => {
+  const cleanupFile = () => {
+    if (req.file) {
+      const filePath = path.join(__dirname, '../uploads', req.file.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  };
+
   try {
     let {
       service_category,
@@ -39,6 +50,7 @@ const createServiceRequest = async (req, res) => {
     // Validate that bins array is provided and not empty
     if (!bins || !Array.isArray(bins) || bins.length === 0) {
       if (!req.body.bin_type_id || !req.body.bin_size_id) {
+        cleanupFile();
         return res.status(400).json({
           success: false,
           message: 'Bins are required. Provide either bins array or bin_type_id/bin_size_id',
@@ -63,6 +75,7 @@ const createServiceRequest = async (req, res) => {
         quantity: 1,
       }];
     } else {
+      cleanupFile();
       return res.status(400).json({
         success: false,
         message: 'Bins are required. Provide either bins array or bin_type_id/bin_size_id',
@@ -83,6 +96,7 @@ const createServiceRequest = async (req, res) => {
     const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, location);
 
     if (qualifiedSuppliers.length === 0) {
+      cleanupFile();
       return res.status(404).json({
         success: false,
         message: 'Service unavailable: No suppliers found in your area with the requested bins.',
@@ -181,6 +195,7 @@ const createServiceRequest = async (req, res) => {
       },
     });
   } catch (error) {
+    cleanupFile();
     console.error('Create service request error:', error);
     res.status(500).json({
       success: false,
