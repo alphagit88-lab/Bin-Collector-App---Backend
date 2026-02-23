@@ -102,12 +102,84 @@ class SupplierWallet {
     }
   }
 
-  static async requestPayout(walletId, amount, paymentMethod, bankDetails) {
+  /**
+   * Get wallet_transactions (credits from completed jobs) that are available for payout.
+   * Excludes transactions already included in a non-rejected payout.
+   */
+  static async getPendingPayoutJobs(walletId) {
+    const query = `
+      SELECT 
+        wt.id AS wallet_transaction_id,
+        wt.amount,
+        wt.description,
+        wt.created_at,
+        wt.service_request_id,
+        sr.request_id AS service_request_code
+      FROM wallet_transactions wt
+      LEFT JOIN service_requests sr ON wt.service_request_id = sr.id
+      WHERE wt.wallet_id = $1
+        AND wt.transaction_type = 'credit'
+        AND wt.status = 'completed'
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM payout_items pi
+            JOIN payouts p ON pi.payout_id = p.id
+            WHERE pi.wallet_transaction_id = wt.id AND p.status != 'rejected'
+          )
+        )
+      ORDER BY wt.created_at DESC
+    `;
+    const result = await pool.query(query, [walletId]);
+    return result.rows;
+  }
+
+  static async requestPayout(walletId, walletTransactionIds, paymentMethod, bankDetails) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
-      // Check balance
+      if (!Array.isArray(walletTransactionIds) || walletTransactionIds.length === 0) {
+        throw new Error('Select at least one job to include in the payout');
+      }
+
+      // Fetch and validate: all must belong to this wallet, be credit, completed, and not already in a non-rejected payout
+      const placeholders = walletTransactionIds.map((_, i) => `$${i + 1}`).join(', ');
+      const checkQuery = `
+        SELECT wt.id, wt.amount, wt.wallet_id, wt.transaction_type, wt.status
+        FROM wallet_transactions wt
+        WHERE wt.id IN (${placeholders})
+      `;
+      const checkResult = await client.query(checkQuery, walletTransactionIds);
+
+      if (checkResult.rows.length !== walletTransactionIds.length) {
+        throw new Error('One or more selected jobs not found or do not belong to your wallet');
+      }
+
+      for (const row of checkResult.rows) {
+        if (row.wallet_id !== parseInt(walletId, 10)) {
+          throw new Error('One or more selected jobs do not belong to your wallet');
+        }
+        if (row.transaction_type !== 'credit' || row.status !== 'completed') {
+          throw new Error('Only completed job earnings can be included in a payout');
+        }
+      }
+
+      // Check if any are already in a pending/approved payout
+      const inPayoutQuery = `
+        SELECT pi.wallet_transaction_id FROM payout_items pi
+        JOIN payouts p ON pi.payout_id = p.id
+        WHERE pi.wallet_transaction_id = ANY($1::integer[]) AND p.status != 'rejected'
+      `;
+      const inPayout = await client.query(inPayoutQuery, [walletTransactionIds]);
+      if (inPayout.rows.length > 0) {
+        throw new Error('One or more selected jobs are already included in another payout request');
+      }
+
+      const amount = checkResult.rows.reduce((sum, r) => sum + parseFloat(r.amount), 0);
+      if (amount <= 0) {
+        throw new Error('Total amount must be greater than zero');
+      }
+
       const wallet = await client.query('SELECT balance FROM supplier_wallets WHERE id = $1', [walletId]);
       if (parseFloat(wallet.rows[0].balance) < amount) {
         throw new Error('Insufficient balance');
@@ -140,10 +212,16 @@ class SupplierWallet {
 
       const newPayout = payoutResult.rows[0];
 
-      // Create invoice for this payout
-      const Invoice = require('./Invoice');
-      const invoiceId = `INV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
+      // Link payout to selected jobs (payout_items)
+      for (const row of checkResult.rows) {
+        await client.query(
+          `INSERT INTO payout_items (payout_id, wallet_transaction_id, amount) VALUES ($1, $2, $3)`,
+          [newPayout.id, row.id, row.amount]
+        );
+      }
 
+      // Create invoice for this payout
+      const invoiceId = `INV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
       const invoiceQuery = `
         INSERT INTO invoices (
           invoice_id,
@@ -167,29 +245,17 @@ class SupplierWallet {
       ]);
 
       // Deduct from balance and add to pending
-      const updateQuery = `
-        UPDATE supplier_wallets
-        SET balance = balance - $1,
-            pending_balance = pending_balance + $1,
-            updated_at = NOW()
-        WHERE id = $2
-        RETURNING *
-      `;
-      await client.query(updateQuery, [amount, walletId]);
+      await client.query(
+        `UPDATE supplier_wallets SET balance = balance - $1, pending_balance = pending_balance + $1, updated_at = NOW() WHERE id = $2`,
+        [amount, walletId]
+      );
 
-      // Create wallet transaction
-      const transactionQuery = `
-        INSERT INTO wallet_transactions (
-          wallet_id,
-          amount,
-          transaction_type,
-          description,
-          status,
-          created_at
-        )
-        VALUES ($1, $2, 'debit', 'Payout request', 'pending', NOW())
-      `;
-      await client.query(transactionQuery, [walletId, amount]);
+      // Create wallet transaction (debit for payout request)
+      await client.query(
+        `INSERT INTO wallet_transactions (wallet_id, amount, transaction_type, description, status, created_at)
+         VALUES ($1, $2, 'debit', 'Payout request', 'pending', NOW())`,
+        [walletId, amount]
+      );
 
       await client.query('COMMIT');
       return newPayout;
@@ -221,6 +287,29 @@ class SupplierWallet {
       ORDER BY created_at DESC
     `;
     const result = await pool.query(query, [supplierId]);
+    return result.rows;
+  }
+
+  /**
+   * Get line items (jobs) for a payout. Used for invoice display and payout detail.
+   */
+  static async getPayoutItems(payoutId) {
+    const query = `
+      SELECT 
+        pi.id,
+        pi.wallet_transaction_id,
+        pi.amount,
+        pi.created_at,
+        wt.description,
+        wt.service_request_id,
+        sr.request_id AS service_request_code
+      FROM payout_items pi
+      JOIN wallet_transactions wt ON pi.wallet_transaction_id = wt.id
+      LEFT JOIN service_requests sr ON wt.service_request_id = sr.id
+      WHERE pi.payout_id = $1
+      ORDER BY pi.id
+    `;
+    const result = await pool.query(query, [payoutId]);
     return result.rows;
   }
 

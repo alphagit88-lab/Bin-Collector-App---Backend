@@ -17,6 +17,8 @@ class ServiceRequest {
       contact_number,
       contact_email,
       instructions,
+      latitude,
+      longitude,
     } = data;
 
     const query = `
@@ -36,10 +38,12 @@ class ServiceRequest {
         contact_email,
         instructions,
         status,
+        latitude,
+        longitude,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, NOW(), NOW())
       RETURNING *
     `;
 
@@ -58,6 +62,8 @@ class ServiceRequest {
       contact_number || null,
       contact_email || null,
       instructions || null,
+      latitude || null,
+      longitude || null,
     ];
 
     const result = await pool.query(query, values);

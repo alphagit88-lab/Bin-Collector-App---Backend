@@ -32,6 +32,8 @@ const createServiceRequest = async (req, res) => {
       contact_number,
       contact_email,
       instructions,
+      latitude,
+      longitude,
     } = req.body;
 
     // Handle stringified JSON from FormData
@@ -120,6 +122,8 @@ const createServiceRequest = async (req, res) => {
       contact_number,
       contact_email,
       instructions,
+      latitude,
+      longitude,
     });
 
     // Create order items for all bins - ALL linked to the SAME service_request
@@ -647,9 +651,10 @@ const updateRequestStatus = async (req, res) => {
           orderItemStatus = 'loaded';
           binStatus = 'loaded';
           break;
-        case 'delivered':
-          orderItemStatus = 'delivered';
-          binStatus = 'delivered';
+        case 'cash_collected':
+          orderItemStatus = 'cash_collected';
+          binStatus = 'loaded'; // Bin is still on truck/with supplier but cash is collected
+
           // If cash order, collect payment now
           if (request.payment_method === 'cash' && request.payment_status === 'pending') {
             const commissionSetting = await SystemSetting.findByKey('platform_commission_percentage');
@@ -667,14 +672,14 @@ const updateRequestStatus = async (req, res) => {
               transaction_id: transactionId,
               customer_id: request.customer_id,
               supplier_id: request.supplier_id,
-              booking_id: request.request_id,
+              booking_id: request.id,
               amount: totalAmount,
               commission_amount: commissionAmount,
               net_amount: netAmountValue,
               payment_method: 'cash',
               payment_status: 'completed',
               transaction_type: 'payment',
-              description: `Cash payment for ${request.request_id}`,
+              description: `Cash payment collected for ${request.request_id}`,
             });
 
             // Update request payment status
@@ -701,6 +706,10 @@ const updateRequestStatus = async (req, res) => {
               `Platform commission for cash payment ${request.request_id}`
             );
           }
+          break;
+        case 'delivered':
+          orderItemStatus = 'delivered';
+          binStatus = 'delivered';
           break;
         case 'ready_to_pickup':
           orderItemStatus = 'ready_to_pickup';
@@ -809,7 +818,7 @@ const updateRequestStatus = async (req, res) => {
       data: { request: updatedRequest },
     });
   } catch (error) {
-    console.error('Update request status error:', error);
+    console.log('Update request status error:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating request status',

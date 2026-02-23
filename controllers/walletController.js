@@ -41,24 +41,42 @@ const getWalletTransactions = async (req, res) => {
   }
 };
 
-// Request payout
+// Get pending jobs available for payout (credits not yet in a payout request)
+const getPendingPayoutJobs = async (req, res) => {
+  try {
+    const supplierId = req.user.id;
+    const wallet = await SupplierWallet.getOrCreate(supplierId);
+    const jobs = await SupplierWallet.getPendingPayoutJobs(wallet.id);
+
+    res.json({
+      success: true,
+      data: { pending_jobs: jobs },
+    });
+  } catch (error) {
+    console.error('Get pending payout jobs error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching pending payout jobs',
+      error: error.message,
+    });
+  }
+};
+
+// Request payout (body: wallet_transaction_ids array, payment_method, bank_details)
 const requestPayout = async (req, res) => {
   try {
     const supplierId = req.user.id;
-    const { amount, payment_method, bank_details } = req.body;
+    const { wallet_transaction_ids, payment_method, bank_details } = req.body;
 
     const wallet = await SupplierWallet.getOrCreate(supplierId);
 
-    if (parseFloat(wallet.balance) < parseFloat(amount)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient balance',
-      });
-    }
+    const ids = Array.isArray(wallet_transaction_ids)
+      ? wallet_transaction_ids.map((id) => parseInt(id, 10)).filter((n) => !isNaN(n))
+      : [];
 
     const payout = await SupplierWallet.requestPayout(
       wallet.id,
-      parseFloat(amount),
+      ids,
       payment_method || 'bank_transfer',
       bank_details
     );
@@ -70,9 +88,10 @@ const requestPayout = async (req, res) => {
     });
   } catch (error) {
     console.error('Request payout error:', error);
-    res.status(500).json({
+    const status = error.message && (error.message.includes('not found') || error.message.includes('Select at least') || error.message.includes('do not belong') || error.message.includes('already included') || error.message.includes('Only completed')) ? 400 : 500;
+    res.status(status).json({
       success: false,
-      message: 'Error requesting payout',
+      message: error.message || 'Error requesting payout',
       error: error.message,
     });
   }
@@ -179,6 +198,7 @@ const updatePayoutStatus = async (req, res) => {
 module.exports = {
   getWallet,
   getWalletTransactions,
+  getPendingPayoutJobs,
   requestPayout,
   getPayouts,
   getAllWallets,

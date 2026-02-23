@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   getWallet,
   getWalletTransactions,
+  getPendingPayoutJobs,
   requestPayout,
   getPayouts,
   getAllWallets,
@@ -13,6 +14,7 @@ const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
 router.get('/', authenticate, getWallet);
 router.get('/transactions', authenticate, getWalletTransactions);
+router.get('/pending-jobs', authenticate, getPendingPayoutJobs);
 router.post('/payout', authenticate, requestPayout);
 router.get('/payouts', authenticate, getPayouts);
 

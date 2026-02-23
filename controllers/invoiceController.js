@@ -1,4 +1,5 @@
 const Invoice = require('../models/Invoice');
+const SupplierWallet = require('../models/SupplierWallet');
 
 // Get all invoices (admin)
 const getAllInvoices = async (req, res) => {
@@ -28,7 +29,7 @@ const getAllInvoices = async (req, res) => {
   }
 };
 
-// Get invoice by ID
+// Get invoice by ID (includes line items for payout invoices)
 const getInvoiceById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -41,9 +42,14 @@ const getInvoiceById = async (req, res) => {
       });
     }
 
+    let line_items = [];
+    if (invoice.payout_id) {
+      line_items = await SupplierWallet.getPayoutItems(invoice.payout_id);
+    }
+
     res.json({
       success: true,
-      data: { invoice },
+      data: { invoice, line_items },
     });
   } catch (error) {
     console.error('Get invoice error:', error);
@@ -55,7 +61,7 @@ const getInvoiceById = async (req, res) => {
   }
 };
 
-// Get invoice by invoice_id
+// Get invoice by invoice_id (includes payout and line items - jobs - for payout invoices)
 const getInvoiceByInvoiceId = async (req, res) => {
   try {
     const { invoiceId } = req.params;
@@ -68,19 +74,21 @@ const getInvoiceByInvoiceId = async (req, res) => {
       });
     }
 
-    // Optional: Fetch payout details if needed
     let payout = null;
+    let line_items = [];
     if (invoice.payout_id) {
       const pool = require('../config/database');
       const result = await pool.query('SELECT * FROM payouts WHERE id = $1', [invoice.payout_id]);
       payout = result.rows[0];
+      line_items = await SupplierWallet.getPayoutItems(invoice.payout_id);
     }
 
     res.json({
       success: true,
       data: {
         invoice,
-        payout
+        payout,
+        line_items,
       },
     });
   } catch (error) {
