@@ -16,6 +16,7 @@ const walletRoutes = require('./routes/walletRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
 const billRoutes = require('./routes/billRoutes');
 const supplierRoutes = require('./routes/supplierRoutes');
+const serviceCategoryRoutes = require('./routes/serviceCategoryRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -75,6 +76,7 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/supplier', supplierRoutes);
+app.use('/api/service-categories', serviceCategoryRoutes);
 
 // 404 handler
 app.use((req, res) => {

@@ -34,6 +34,8 @@ const createServiceRequest = async (req, res) => {
       instructions,
       latitude,
       longitude,
+      selected_services,
+      estimated_price,
     } = req.body;
 
     // Handle stringified JSON from FormData
@@ -44,149 +46,141 @@ const createServiceRequest = async (req, res) => {
         console.error('Error parsing bins JSON:', e);
       }
     }
-
-    const attachment_url = req.file ? `/uploads/${req.file.filename}` : null;
-
-    const customerId = req.user.id;
-
-    // Validate that bins array is provided and not empty
-    if (!bins || !Array.isArray(bins) || bins.length === 0) {
-      if (!req.body.bin_type_id || !req.body.bin_size_id) {
-        cleanupFile();
-        return res.status(400).json({
-          success: false,
-          message: 'Bins are required. Provide either bins array or bin_type_id/bin_size_id',
-        });
+    if (typeof selected_services === 'string') {
+      try {
+        selected_services = JSON.parse(selected_services);
+      } catch (e) {
+        console.error('Error parsing selected_services JSON:', e);
       }
     }
 
-    // Support legacy single bin format for backward compatibility
-    let orderItems = [];
-    if (bins && Array.isArray(bins) && bins.length > 0) {
-      // New format: multiple bins
-      orderItems = bins.map(bin => ({
-        bin_type_id: parseInt(bin.bin_type_id),
-        bin_size_id: parseInt(bin.bin_size_id),
-        quantity: parseInt(bin.quantity) || 1,
-      }));
-    } else if (req.body.bin_type_id && req.body.bin_size_id) {
-      // Legacy format: single bin
-      orderItems = [{
-        bin_type_id: parseInt(req.body.bin_type_id),
-        bin_size_id: parseInt(req.body.bin_size_id),
-        quantity: 1,
-      }];
-    } else {
-      cleanupFile();
-      return res.status(400).json({
-        success: false,
-        message: 'Bins are required. Provide either bins array or bin_type_id/bin_size_id',
-      });
-    }
-
-    // Generate request ID
+    const attachment_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const customerId = req.user.id;
     const requestId = `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
 
-    // Calculate estimated price (simple algorithm for now)
-    const estimatedPrice = 100 * orderItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
+    let qualifiedSuppliers = [];
+    let orderItems = [];
+    let finalEstimatedPrice = parseFloat(estimated_price) || 0;
 
-    // Use first bin's type/size for backward compatibility with service_requests table
-    const firstBin = orderItems[0];
+    if (service_category === 'service') {
+      // Find suppliers covering the location for general services
+      qualifiedSuppliers = await User.findQualifiedSuppliersForService(location);
+    } else {
+      // Validation and supplier search for bins
+      if (bins && Array.isArray(bins) && bins.length > 0) {
+        orderItems = bins.map(bin => ({
+          bin_type_id: parseInt(bin.bin_type_id),
+          bin_size_id: bin.bin_size_id ? parseInt(bin.bin_size_id) : null,
+          quantity: parseInt(bin.quantity) || 1,
+        }));
+      } else if (req.body.bin_type_id && req.body.bin_size_id) {
+        orderItems = [{
+          bin_type_id: parseInt(req.body.bin_type_id),
+          bin_size_id: parseInt(req.body.bin_size_id),
+          quantity: 1,
+        }];
+      } else {
+        cleanupFile();
+        return res.status(400).json({
+          success: false,
+          message: 'Bins are required for residential or commercial bookings.',
+        });
+      }
 
-    // Check for qualified suppliers BEFORE creating the request
-    // This now checks for both bin availability AND location service area coverage
-    const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, location);
+      qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, location);
+      if (qualifiedSuppliers.length > 0 && !finalEstimatedPrice) {
+        finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
+      }
+    }
 
     if (qualifiedSuppliers.length === 0) {
       cleanupFile();
       return res.status(404).json({
         success: false,
-        message: 'Service unavailable: No suppliers found in your area with the requested bins.',
+        message: 'Service unavailable: No suppliers found in your area.',
       });
     }
 
-    console.log('Creating ONE service request with ID:', requestId, 'for', orderItems.length, 'bin type(s)');
+    const firstBin = orderItems.length > 0 ? orderItems[0] : null;
 
     const serviceRequest = await ServiceRequest.create({
       request_id: requestId,
       customer_id: customerId,
       service_category,
-      bin_type_id: parseInt(firstBin.bin_type_id),
-      bin_size_id: firstBin.bin_size_id ? parseInt(firstBin.bin_size_id) : null,
+      bin_type_id: firstBin ? parseInt(firstBin.bin_type_id) : null,
+      bin_size_id: firstBin && firstBin.bin_size_id ? parseInt(firstBin.bin_size_id) : null,
       location,
       start_date,
       end_date,
       attachment_url,
-      estimated_price: estimatedPrice,
+      estimated_price: finalEstimatedPrice,
       payment_method,
       contact_number,
       contact_email,
       instructions,
       latitude,
       longitude,
+      selected_services,
     });
 
-    // Create order items for all bins - ALL linked to the SAME service_request
+    // Create order items for bins if any
     const createdOrderItems = [];
-    for (const item of orderItems) {
-      for (let i = 0; i < (item.quantity || 1); i++) {
-        const orderItem = await OrderItem.create({
-          service_request_id: serviceRequest.id, // All items use the same service_request_id
-          bin_type_id: parseInt(item.bin_type_id),
-          bin_size_id: item.bin_size_id ? parseInt(item.bin_size_id) : null,
-          status: 'pending',
-        });
-        createdOrderItems.push(orderItem);
+    if (orderItems.length > 0) {
+      for (const item of orderItems) {
+        for (let i = 0; i < (item.quantity || 1); i++) {
+          const orderItem = await OrderItem.create({
+            service_request_id: serviceRequest.id,
+            bin_type_id: parseInt(item.bin_type_id),
+            bin_size_id: (item.bin_size_id && item.bin_size_id !== 'null') ? parseInt(item.bin_size_id) : null,
+            status: 'pending',
+          });
+          createdOrderItems.push(orderItem);
+        }
       }
     }
 
-    console.log(`Created ${createdOrderItems.length} order item(s) for service request ${serviceRequest.id}`);
-
-    // Fetch the full request with names for notification
     const fullRequest = await ServiceRequest.findById(serviceRequest.id);
-
-    // Fetch individual items to show multiple bins if ordered
     const items = await OrderItem.findByServiceRequest(serviceRequest.id);
-    console.log('Fetched items for socket event:', items);
 
-    // Emit notification only to qualified suppliers via Socket.io
+    // Emit notification to qualified suppliers
     const io = req.app.get('io');
     if (io && qualifiedSuppliers.length > 0) {
-      // Notify each qualified supplier individually
       qualifiedSuppliers.forEach((supplier) => {
+        let message = '';
+        if (service_category === 'service') {
+          message = `New service request available near ${fullRequest.location}`;
+        } else {
+          message = items.length > 1
+            ? `New request for ${items.length} bins available near ${fullRequest.location}`
+            : `New request: ${fullRequest.bin_type_name} - ${fullRequest.bin_size} available near ${fullRequest.location}`;
+        }
+
         const payload = {
           request: {
             ...fullRequest,
             items: items
           },
-          message: items.length > 1
-            ? `New request for ${items.length} bins available near ${fullRequest.location}`
-            : `New request: ${fullRequest.bin_type_name} - ${fullRequest.bin_size} available near ${fullRequest.location}`,
+          message,
         };
-        // Socket notification
         io.to(`supplier_${supplier.id}`).emit('new_request', payload);
       });
 
-      // Send Push Notifications to qualified suppliers
       const pushTokens = qualifiedSuppliers.map(s => s.pushToken).filter(token => token);
-      console.log('Qualified Suppliers with tokens:', pushTokens.length, 'Total Qualified:', qualifiedSuppliers.length);
-
       if (pushTokens.length > 0) {
-        const title = 'New Service Request';
-        const body = items.length > 1
-          ? `New request for ${items.length} bins available near ${fullRequest.location}`
-          : `New request: ${fullRequest.bin_type_name} available near ${fullRequest.location}`;
-
-        console.log('Sending Push Notification:', { title, body, count: pushTokens.length });
+        const title = 'New Request';
+        let body = '';
+        if (service_category === 'service') {
+          body = `New service request available near ${fullRequest.location}`;
+        } else {
+          body = items.length > 1
+            ? `New request for ${items.length} bins available near ${fullRequest.location}`
+            : `New request: ${fullRequest.bin_type_name} available near ${fullRequest.location}`;
+        }
 
         sendPushNotifications(pushTokens, title, body, {
           requestId: fullRequest.id,
           type: 'new_request'
-        })
-          .then(tickets => console.log('Push notification tickets:', tickets))
-          .catch(err => console.error('Push notification error:', err));
-      } else {
-        console.log('No push tokens available for qualified suppliers.');
+        }).catch(err => console.error('Push notification error:', err));
       }
     }
 
@@ -231,23 +225,29 @@ const getMyRequests = async (req, res) => {
   }
 };
 
-// Get supplier's requests
+// Get supplier's or driver's requests
 const getSupplierRequests = async (req, res) => {
   try {
-    const supplierId = req.user.id;
+    const userId = req.user.id;
+    const role = req.user.role;
     const { status } = req.query;
 
-    const requests = await ServiceRequest.findBySupplier(supplierId, { status });
+    let requests;
+    if (role === 'driver') {
+      requests = await ServiceRequest.findAll({ driver_id: userId, status });
+    } else {
+      requests = await ServiceRequest.findBySupplier(userId, { status });
+    }
 
     res.json({
       success: true,
       data: { requests },
     });
   } catch (error) {
-    console.error('Get supplier requests error:', error);
+    console.error('Get jobs error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching requests',
+      message: 'Error fetching jobs',
       error: error.message,
     });
   }
@@ -297,6 +297,10 @@ const getRequestById = async (req, res) => {
       });
     }
 
+    // Fetch order items if any
+    const orderItems = await OrderItem.findByServiceRequest(id);
+    request.orderItems = orderItems;
+
     res.json({
       success: true,
       data: { request },
@@ -315,15 +319,7 @@ const getRequestById = async (req, res) => {
 const acceptRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const { total_price } = req.body; // Supplier provides price when accepting
     const supplierId = req.user.id;
-
-    if (!total_price || parseFloat(total_price) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Total price is required',
-      });
-    }
 
     const request = await ServiceRequest.findById(id);
     if (!request) {
@@ -347,7 +343,15 @@ const acceptRequest = async (req, res) => {
       });
     }
 
-    const totalAmount = parseFloat(total_price);
+    // Use the admin-approved price stored in the request
+    const totalAmount = parseFloat(request.estimated_price);
+    
+    if (isNaN(totalAmount) || totalAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid price not found for this request. Please contact support.',
+      });
+    }
     const paymentMethod = request.payment_method || 'online';
 
     // Update request to confirmed with supplier
@@ -471,20 +475,40 @@ const updateRequestStatus = async (req, res) => {
     const Transaction = require('../models/Transaction');
     const SupplierWallet = require('../models/SupplierWallet');
     const SystemSetting = require('../models/SystemSetting');
+    const pool = require('../config/database');
+
+    const cleanupFile = () => {
+      if (req.file) {
+        const filePath = path.join(__dirname, '../uploads', req.file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+    };
 
     const request = await ServiceRequest.findById(id);
     if (!request) {
+      cleanupFile();
       return res.status(404).json({
         success: false,
         message: 'Service request not found',
       });
     }
 
-    // Validate supplier can only update their own requests
+    // Validate user can only update their own requests
     if (req.user.role === 'supplier' && request.supplier_id !== req.user.id) {
+      cleanupFile();
       return res.status(403).json({
         success: false,
         message: 'You can only update your own requests',
+      });
+    }
+
+    if (req.user.role === 'driver' && request.driver_id !== req.user.id) {
+      cleanupFile();
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update jobs assigned to you',
       });
     }
 
@@ -500,10 +524,21 @@ const updateRequestStatus = async (req, res) => {
         });
       }
 
-      // Support legacy single bin_code format
-      const binCodesArray = bin_codes && Array.isArray(bin_codes)
-        ? bin_codes
-        : (req.body.bin_code ? [req.body.bin_code] : []);
+      // Support legacy single bin_code format AND handle JSON stringified arrays from FormData
+      let binCodesArray = [];
+      if (Array.isArray(bin_codes)) {
+        binCodesArray = bin_codes;
+      } else if (typeof bin_codes === 'string' && bin_codes.startsWith('[')) {
+        try {
+          binCodesArray = JSON.parse(bin_codes);
+        } catch (e) {
+          binCodesArray = [bin_codes];
+        }
+      } else if (bin_codes) {
+        binCodesArray = [bin_codes];
+      } else if (req.body.bin_code) {
+        binCodesArray = [req.body.bin_code];
+      }
 
       if (binCodesArray.length !== orderItems.length) {
         return res.status(400).json({
@@ -603,11 +638,18 @@ const updateRequestStatus = async (req, res) => {
           });
         }
 
-        // Verify bin matches order item requirements
-        if (bin.bin_type_id !== orderItem.bin_type_id || bin.bin_size_id !== orderItem.bin_size_id) {
+        // Verify bin matches order item requirements (Type and Size)
+        const typeMatch = bin.bin_type_id === orderItem.bin_type_id;
+        
+        // Handle null sizes for both bin and order item correctly
+        const binSizeId = bin.bin_size_id === null ? null : parseInt(bin.bin_size_id);
+        const orderItemSizeId = orderItem.bin_size_id === null ? null : parseInt(orderItem.bin_size_id);
+        const sizeMatch = binSizeId === orderItemSizeId;
+
+        if (!typeMatch || !sizeMatch) {
           return res.status(400).json({
             success: false,
-            message: `Bin ${binCode} does not match order item requirements (Type: ${orderItem.bin_type_name}, Size: ${orderItem.bin_size})`,
+            message: `Bin ${binCode} does not match order item requirements (Type: ${orderItem.bin_type_name}, Size: ${orderItem.bin_size || 'None'})`,
           });
         }
 
@@ -631,7 +673,14 @@ const updateRequestStatus = async (req, res) => {
       });
     } else {
       // Update request status
-      await ServiceRequest.update(id, { status });
+      const updateData = { status };
+      
+      // If delivery photo is uploaded, add it to the update data
+      if (status === 'delivered' && req.file) {
+        updateData.delivery_photo_url = `/uploads/${req.file.filename}`;
+      }
+
+      await ServiceRequest.update(id, updateData);
     }
 
     const updatedRequest = await ServiceRequest.findById(id);

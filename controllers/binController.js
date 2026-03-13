@@ -1,5 +1,7 @@
 const BinType = require('../models/BinType');
 const BinSize = require('../models/BinSize');
+const ServiceArea = require('../models/ServiceArea');
+const ServiceAreaBin = require('../models/ServiceAreaBin');
 
 // Bin Types
 const getAllBinTypes = async (req, res) => {
@@ -275,6 +277,46 @@ const deleteBinSize = async (req, res) => {
   }
 };
 
+const getBinPricesByLocation = async (req, res) => {
+  try {
+    const { lat, lon } = req.query;
+    
+    if (!lat || !lon) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required',
+      });
+    }
+
+    // 1. Find service areas covering this location
+    const serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
+    
+    if (serviceAreas.length === 0) {
+      return res.json({
+        success: true,
+        data: { prices: [] },
+        message: 'No service areas found for this location'
+      });
+    }
+
+    // 2. Get finalized prices for these service areas
+    const areaIds = serviceAreas.map(sa => sa.id);
+    const prices = await ServiceAreaBin.getFinalPricesForAreas(areaIds);
+
+    res.json({
+      success: true,
+      data: { prices },
+    });
+  } catch (error) {
+    console.error('Get bin prices error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching bin prices',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllBinTypes,
   getBinTypeById,
@@ -286,4 +328,5 @@ module.exports = {
   createBinSize,
   updateBinSize,
   deleteBinSize,
+  getBinPricesByLocation,
 };

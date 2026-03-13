@@ -41,10 +41,28 @@ class ServiceArea {
         return result.rows[0];
     }
 
-    // Find suppliers who cover a specific location
-    // This uses a simplified distance calculation (Haversine formula could be implemented in DB function for better precision)
-    // For now, checking if supplier has a service area that includes the given point would require more complex GIS queries or PostGIS.
-    // Instead, successful matching often relies on 'city' match or a simple radius check if we convert everything to coords.
+    // Find service areas covering a specific lat/lon coordinate
+    static async findInRange(lat, lon) {
+        const query = `
+          SELECT *,
+            (6371 * acos(
+              cos(radians($1)) * cos(radians(latitude)) * 
+              cos(radians(longitude) - radians($2)) + 
+              sin(radians($1)) * sin(radians(latitude))
+            )) AS distance
+          FROM service_areas
+          WHERE (
+            6371 * acos(
+              cos(radians($1)) * cos(radians(latitude)) * 
+              cos(radians(longitude) - radians($2)) + 
+              sin(radians($1)) * sin(radians(latitude))
+            )
+          ) <= area_radius_km
+          ORDER BY distance ASC
+        `;
+        const result = await pool.query(query, [lat, lon]);
+        return result.rows;
+    }
 }
 
 module.exports = ServiceArea;

@@ -19,6 +19,7 @@ class ServiceRequest {
       instructions,
       latitude,
       longitude,
+      selected_services, // Add this
     } = data;
 
     const query = `
@@ -40,10 +41,11 @@ class ServiceRequest {
         status,
         latitude,
         longitude,
+        selected_services,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, NOW(), NOW())
       RETURNING *
     `;
 
@@ -51,8 +53,8 @@ class ServiceRequest {
       request_id,
       customer_id,
       service_category,
-      bin_type_id,
-      bin_size_id,
+      bin_type_id || null,
+      bin_size_id || null,
       location,
       start_date,
       end_date,
@@ -64,6 +66,7 @@ class ServiceRequest {
       instructions || null,
       latitude || null,
       longitude || null,
+      selected_services ? JSON.stringify(selected_services) : null,
     ];
 
     const result = await pool.query(query, values);
@@ -81,16 +84,27 @@ class ServiceRequest {
         c.phone AS customer_phone,
         s.name AS supplier_name,
         s.phone AS supplier_phone,
+        d.name AS driver_name,
+        d.phone AS driver_phone,
+        d.push_token AS driver_push_token,
         c.push_token AS customer_push_token,
         s.push_token AS supplier_push_token,
         pb.bin_code,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
-        b.bill_id
+        b.bill_id,
+        (SELECT STRING_AGG(name, ', ') 
+         FROM service_categories 
+         WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
+        ) AS service_names,
+        (SELECT COUNT(*) 
+         FROM jsonb_array_elements(sr.selected_services)
+        ) AS selected_services_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
+      LEFT JOIN users d ON sr.driver_id = d.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
       LEFT JOIN bills b ON sr.id = b.service_request_id
@@ -108,16 +122,27 @@ class ServiceRequest {
         bs.size AS bin_size,
         c.name AS customer_name,
         s.name AS supplier_name,
+        d.name AS driver_name,
+        d.phone AS driver_phone,
+        d.push_token AS driver_push_token,
         c.push_token AS customer_push_token,
         s.push_token AS supplier_push_token,
         pb.bin_code,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
-        b.bill_id
+        b.bill_id,
+        (SELECT STRING_AGG(name, ', ') 
+         FROM service_categories 
+         WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
+        ) AS service_names,
+        (SELECT COUNT(*) 
+         FROM jsonb_array_elements(sr.selected_services)
+        ) AS selected_services_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
+      LEFT JOIN users d ON sr.driver_id = d.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
       LEFT JOIN bills b ON sr.id = b.service_request_id
@@ -135,7 +160,14 @@ class ServiceRequest {
         bs.size AS bin_size,
         pb.bin_code,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
-        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count,
+        (SELECT STRING_AGG(name, ', ') 
+         FROM service_categories 
+         WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
+        ) AS service_names,
+        (SELECT COUNT(*) 
+         FROM jsonb_array_elements(sr.selected_services)
+        ) AS selected_services_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
@@ -184,13 +216,24 @@ class ServiceRequest {
         bs.size AS bin_size,
         c.name AS customer_name,
         c.phone AS customer_phone,
+        d.name AS driver_name,
+        d.phone AS driver_phone,
+        d.push_token AS driver_push_token,
         pb.bin_code,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
-        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count,
+        (SELECT STRING_AGG(name, ', ') 
+         FROM service_categories 
+         WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
+        ) AS service_names,
+        (SELECT COUNT(*) 
+         FROM jsonb_array_elements(sr.selected_services)
+        ) AS selected_services_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
+      LEFT JOIN users d ON sr.driver_id = d.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
       WHERE sr.supplier_id = $1
@@ -236,12 +279,23 @@ class ServiceRequest {
         bs.size AS bin_size,
         c.name AS customer_name,
         c.phone AS customer_phone,
+        d.name AS driver_name,
+        d.phone AS driver_phone,
+        d.push_token AS driver_push_token,
         pb.bin_code,
-        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count,
+        (SELECT STRING_AGG(name, ', ') 
+         FROM service_categories 
+         WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
+        ) AS service_names,
+        (SELECT COUNT(*) 
+         FROM jsonb_array_elements(sr.selected_services)
+        ) AS selected_services_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
+      LEFT JOIN users d ON sr.driver_id = d.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       WHERE sr.status = 'pending' AND sr.supplier_id IS NULL
     `;
@@ -292,7 +346,8 @@ class ServiceRequest {
       'contact_number',
       'contact_email',
       'instructions',
-      'attachment_url'
+      'attachment_url',
+      'delivery_photo_url'
     ];
     const updateFields = [];
     const values = [];
@@ -334,6 +389,17 @@ class ServiceRequest {
     return result.rows[0];
   }
 
+  static async assignDriver(requestId, driverId) {
+    const query = `
+      UPDATE service_requests
+      SET driver_id = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `;
+    const result = await pool.query(query, [driverId, requestId]);
+    return result.rows[0];
+  }
+
   static async findAll(filters = {}) {
     let query = `
       SELECT 
@@ -344,14 +410,25 @@ class ServiceRequest {
         c.phone AS customer_phone,
         s.name AS supplier_name,
         s.phone AS supplier_phone,
+        d.name AS driver_name,
+        d.phone AS driver_phone,
+        d.push_token AS driver_push_token,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
         b.bill_id,
-        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count
+        (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count,
+        (SELECT STRING_AGG(name, ', ') 
+         FROM service_categories 
+         WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
+        ) AS service_names,
+        (SELECT COUNT(*) 
+         FROM jsonb_array_elements(sr.selected_services)
+        ) AS selected_services_count
       FROM service_requests sr
       LEFT JOIN bin_types bt ON sr.bin_type_id = bt.id
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users s ON sr.supplier_id = s.id
+      LEFT JOIN users d ON sr.driver_id = d.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
       LEFT JOIN bills b ON sr.id = b.service_request_id
       WHERE 1=1
@@ -372,6 +449,11 @@ class ServiceRequest {
     if (filters.supplier_id) {
       query += ` AND sr.supplier_id = $${paramCount++}`;
       values.push(filters.supplier_id);
+    }
+
+    if (filters.driver_id) {
+      query += ` AND sr.driver_id = $${paramCount++}`;
+      values.push(filters.driver_id);
     }
 
     query += ` ORDER BY sr.created_at DESC`;

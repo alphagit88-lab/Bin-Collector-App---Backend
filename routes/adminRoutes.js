@@ -9,6 +9,9 @@ const {
   updateUser,
   deleteAdmin,
   deleteUser,
+  getBinPriceRanges,
+  getAllBinSubmissions,
+  updateBinFinalPrice,
 } = require('../controllers/adminController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
@@ -24,5 +27,10 @@ router.put('/:id', updateAdmin);
 router.put('/users/:id', updateUser);
 router.delete('/:id', deleteAdmin);
 router.delete('/users/:id', deleteUser);
+
+// Bin Pricing Routes
+router.get('/bin-pricing/ranges', getBinPriceRanges);
+router.get('/bin-pricing/submissions', getAllBinSubmissions);
+router.put('/bin-pricing/submissions/:id', updateBinFinalPrice);
 
 module.exports = router;

@@ -27,7 +27,7 @@ router.put('/:id/ready-to-pickup', authenticate, markReadyToPickup);
 router.get('/supplier/requests', authenticate, getSupplierRequests);
 router.get('/supplier/pending', authenticate, getPendingRequests);
 router.post('/:id/accept', authenticate, acceptRequest);
-router.put('/:id/status', authenticate, updateRequestStatus);
+router.put('/:id/status', authenticate, upload.single('delivery_photo'), updateRequestStatus);
 router.get('/:id/order-items', authenticate, getOrderItems);
 
 // Admin routes

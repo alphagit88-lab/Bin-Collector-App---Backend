@@ -11,6 +11,7 @@ const {
   createBinSize,
   updateBinSize,
   deleteBinSize,
+  getBinPricesByLocation,
 } = require('../controllers/binController');
 const {
   getAllBins,
@@ -28,6 +29,7 @@ router.get('/types', getAllBinTypes);
 router.get('/types/:id', getBinTypeById);
 router.get('/sizes', getAllBinSizes);
 router.get('/sizes/:id', getBinSizeById);
+router.get('/prices', getBinPricesByLocation);
 
 // Physical bins routes (authenticated users - suppliers and admins)
 // Suppliers can view/create/update their own bins, admins can do everything

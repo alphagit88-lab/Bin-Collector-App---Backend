@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const ServiceAreaBin = require('../models/ServiceAreaBin');
 
 // Create admin user (only existing admins can do this)
 const createAdmin = async (req, res) => {
@@ -49,12 +50,12 @@ const createAdmin = async (req, res) => {
 // Create user (admin, customer, or supplier)
 const createUser = async (req, res) => {
   try {
-    const { name, phone, email, role, password, supplierType } = req.body;
+    const { name, phone, email, role, password, supplierType, supplierId } = req.body;
 
-    if (!['admin', 'customer', 'supplier'].includes(role)) {
+    if (!['admin', 'customer', 'supplier', 'driver'].includes(role)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid role. Must be admin, customer, or supplier',
+        message: 'Invalid role. Must be admin, customer, supplier, or driver',
       });
     }
 
@@ -92,6 +93,7 @@ const createUser = async (req, res) => {
       role, 
       password,
       supplierType,
+      supplierId,
     });
 
     res.status(201).json({
@@ -134,10 +136,10 @@ const getUsersByRole = async (req, res) => {
   try {
     const { role } = req.params;
     
-    if (!['customer', 'supplier'].includes(role)) {
+    if (!['customer', 'supplier', 'driver'].includes(role)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid role. Must be customer or supplier',
+        message: 'Invalid role. Must be customer, supplier, or driver',
       });
     }
 
@@ -209,7 +211,7 @@ const updateAdmin = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email } = req.body;
+    const { name, email, role, supplierId, supplierType } = req.body;
 
     const user = await User.findById(id);
     if (!user) {
@@ -219,7 +221,7 @@ const updateUser = async (req, res) => {
       });
     }
 
-    const updatedUser = await User.update(id, { name, email });
+    const updatedUser = await User.update(id, { name, email, role, supplierId, supplierType });
     
     res.json({
       success: true,
@@ -308,14 +310,77 @@ const deleteUser = async (req, res) => {
       success: true,
       message: 'User deleted successfully',
     });
-  } catch (error) {
-    console.error('Delete user error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error deleting user',
-      error: error.message,
-    });
-  }
+    } catch (error) {
+        console.error('Delete user error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting user',
+            error: error.message,
+        });
+    }
+};
+
+const getBinPriceRanges = async (req, res) => {
+    try {
+        const ranges = await ServiceAreaBin.getPriceRanges();
+        res.json({
+            success: true,
+            data: { ranges },
+        });
+    } catch (error) {
+        console.error('Get bin price ranges error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching bin price ranges',
+            error: error.message,
+        });
+    }
+};
+
+const updateBinFinalPrice = async (req, res) => {
+    try {
+        const { id } = req.params; // service_area_bin_id
+        const { finalPrice, isActive } = req.body;
+
+        if (finalPrice === undefined) {
+            return res.status(400).json({
+                success: false,
+                message: 'Final price is required'
+            });
+        }
+
+        const bin = await ServiceAreaBin.updatePrice(id, parseFloat(finalPrice), isActive);
+        
+        res.json({
+            success: true,
+            data: { bin },
+            message: 'Bin price finalized successfully',
+        });
+    } catch (error) {
+        console.error('Update final price error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating final price',
+            error: error.message,
+        });
+    }
+};
+
+const getAllBinSubmissions = async (req, res) => {
+    try {
+        const submissions = await ServiceAreaBin.findAllSubmissions();
+        res.json({
+            success: true,
+            data: { submissions },
+        });
+    } catch (error) {
+        console.error('Get all bin submissions error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching bin pricing submissions',
+            error: error.message,
+        });
+    }
 };
 
 module.exports = {
@@ -327,4 +392,7 @@ module.exports = {
   updateUser,
   deleteAdmin,
   deleteUser,
+  getBinPriceRanges,
+  updateBinFinalPrice,
+  getAllBinSubmissions
 };
