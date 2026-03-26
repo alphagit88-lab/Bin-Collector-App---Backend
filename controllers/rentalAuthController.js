@@ -249,8 +249,123 @@ const getMe = async (req, res) => {
   }
 };
 
+const updateProfile = async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
+
+  try {
+    const name = req.body.name.trim();
+    const email = req.body.email.trim().toLowerCase();
+    const currentPassword = req.body.currentPassword || "";
+    const newPassword = req.body.newPassword || "";
+    const wantsPasswordChange = Boolean(currentPassword || newPassword);
+
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    const currentAccount = await HomeRentalAccount.findByUserId(
+      req.user.id,
+      client,
+    );
+
+    if (!currentAccount || !currentAccount.isActive) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+
+      return res.status(404).json({
+        success: false,
+        message: "Home rental account not found",
+      });
+    }
+
+    const emailOwner = await HomeRentalAccount.findByEmail(email, client);
+
+    if (emailOwner && emailOwner.userId !== req.user.id) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+
+      return res.status(400).json({
+        success: false,
+        message: "This email is already in use by another account",
+      });
+    }
+
+    let passwordHash;
+
+    if (wantsPasswordChange) {
+      const isCurrentPasswordValid = await bcrypt.compare(
+        currentPassword,
+        currentAccount.passwordHash,
+      );
+
+      if (!isCurrentPasswordValid) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+
+        return res.status(400).json({
+          success: false,
+          message: "Current password is incorrect",
+        });
+      }
+
+      if (currentPassword === newPassword) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+
+        return res.status(400).json({
+          success: false,
+          message: "New password must be different from current password",
+        });
+      }
+
+      passwordHash = await bcrypt.hash(newPassword, 10);
+    }
+
+    const updatedAccount = await HomeRentalAccount.updateByUserId(
+      req.user.id,
+      { name, email, passwordHash },
+      client,
+    );
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    res.json({
+      success: true,
+      message: wantsPasswordChange
+        ? "Profile and password updated successfully"
+        : "Profile updated successfully",
+      data: {
+        user: formatUser(updatedAccount),
+      },
+    });
+  } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
+
+    console.error("Rental update profile error:", error);
+
+    if (error.code === "23505") {
+      return res.status(400).json({
+        success: false,
+        message: "This email is already in use by another account",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Error updating profile",
+      error: error.message,
+    });
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   signup,
   login,
   getMe,
+  updateProfile,
 };
