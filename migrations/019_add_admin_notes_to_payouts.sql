@@ -6,7 +6,7 @@ BEGIN
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'payouts' AND column_name = 'admin_notes'
     ) THEN
-        ALTER TABLE payouts ADD COLUMN admin_notes TEXT;
+        ALTER TABLE payouts ADD COLUMN IF NOT EXISTS admin_notes TEXT;
     END IF;
 
     -- 2. Update status constraint to include approved and rejected

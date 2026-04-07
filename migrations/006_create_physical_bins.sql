@@ -24,7 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_physical_bins_service_request_id ON physical_bins
 ALTER TABLE service_requests 
 ADD COLUMN IF NOT EXISTS bin_id INTEGER REFERENCES physical_bins(id) ON DELETE SET NULL;
 
--- Create index for bin_id in service_requests
+-- CREATE INDEX IF NOT EXISTS for bin_id in service_requests
 CREATE INDEX IF NOT EXISTS idx_service_requests_bin_id ON service_requests(bin_id);
 
 -- Update service_requests status to include new statuses

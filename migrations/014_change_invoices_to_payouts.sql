@@ -16,7 +16,7 @@ BEGIN
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'invoices' AND column_name = 'payout_id'
     ) THEN
-        ALTER TABLE invoices ADD COLUMN payout_id INTEGER REFERENCES payouts(id) ON DELETE CASCADE;
+        ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payout_id INTEGER REFERENCES payouts(id) ON DELETE CASCADE;
     END IF;
 
     -- 3. Make customer_id nullable

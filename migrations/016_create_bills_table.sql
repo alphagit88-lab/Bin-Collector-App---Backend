@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS bills (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index for bills
+-- CREATE INDEX IF NOT EXISTS for bills
 CREATE INDEX IF NOT EXISTS idx_bills_service_request_id ON bills(service_request_id);
 CREATE INDEX IF NOT EXISTS idx_bills_customer_id ON bills(customer_id);
 CREATE INDEX IF NOT EXISTS idx_bills_supplier_id ON bills(supplier_id);

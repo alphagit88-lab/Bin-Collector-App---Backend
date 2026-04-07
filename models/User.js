@@ -7,9 +7,9 @@ class User {
     const supplier_type = role === 'supplier' ? (supplierType || null) : null;
     const supplier_id = role === 'driver' ? (supplierId || null) : null;
     const query = `
-      INSERT INTO users (name, phone, email, role, supplier_type, supplier_id, password_hash, push_token, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", created_at, updated_at
+      INSERT INTO users (name, phone, email, role, supplier_type, supplier_id, password_hash, push_token, can_view_billing, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, NOW(), NOW())
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
     const values = [name, phone, email || null, role, supplier_type, supplier_id, hashedPassword, null];
     const result = await pool.query(query, values);
@@ -28,6 +28,7 @@ class User {
         supplier_id AS "supplierId",
         password_hash,
         push_token AS "pushToken",
+        can_view_billing AS "canViewBilling",
         created_at,
         updated_at
       FROM users
@@ -48,6 +49,7 @@ class User {
         supplier_type AS "supplierType",
         supplier_id AS "supplierId",
         push_token AS "pushToken",
+        can_view_billing AS "canViewBilling",
         created_at, 
         updated_at 
       FROM users 
@@ -67,6 +69,7 @@ class User {
         role,
         supplier_type AS "supplierType",
         supplier_id AS "supplierId",
+        can_view_billing AS "canViewBilling",
         created_at, 
         updated_at 
       FROM users 
@@ -119,6 +122,10 @@ class User {
       updates.push(`supplier_id = $${paramCount++}`);
       values.push(supplierId || null);
     }
+    if (arguments[1].canViewBilling !== undefined) {
+      updates.push(`can_view_billing = $${paramCount++}`);
+      values.push(arguments[1].canViewBilling);
+    }
 
     if (updates.length === 0) {
       return await this.findById(id);
@@ -131,7 +138,7 @@ class User {
       UPDATE users 
       SET ${updates.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", created_at, updated_at
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
     const result = await pool.query(query, values);
     return result.rows[0];

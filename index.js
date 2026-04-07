@@ -17,6 +17,9 @@ const invoiceRoutes = require('./routes/invoiceRoutes');
 const billRoutes = require('./routes/billRoutes');
 const supplierRoutes = require('./routes/supplierRoutes');
 const serviceCategoryRoutes = require('./routes/serviceCategoryRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const messageRoutes = require('./routes/messageRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -51,6 +54,9 @@ app.use(cors({
   credentials: true,
 }));
 
+// Stripe webhook needs raw body for signature verification
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static('uploads'));
@@ -77,6 +83,10 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/supplier', supplierRoutes);
 app.use('/api/service-categories', serviceCategoryRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/payments', require('./routes/paymentRoutes'));
+app.use('/api/billing', require('./routes/billingRoutes'));
 
 // 404 handler
 app.use((req, res) => {
@@ -127,10 +137,11 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.userId} (${socket.userRole})`);
 
-  // Join role-specific room
-  if (socket.userRole === 'customer') {
-    socket.join(`user_${socket.userId}`);
-  } else if (socket.userRole === 'supplier') {
+  // Join common per-user room for direct events (messages, updates, etc.)
+  socket.join(`user_${socket.userId}`);
+
+  // Join role-specific rooms
+  if (socket.userRole === 'supplier') {
     socket.join(`supplier_${socket.userId}`);
     // Also join general suppliers room for broadcast notifications
     socket.join('suppliers');

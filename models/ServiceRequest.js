@@ -19,7 +19,9 @@ class ServiceRequest {
       instructions,
       latitude,
       longitude,
-      selected_services, // Add this
+      selected_services,
+      po_number,
+      additional_images,
     } = data;
 
     const query = `
@@ -42,10 +44,12 @@ class ServiceRequest {
         latitude,
         longitude,
         selected_services,
+        po_number,
+        additional_images,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, $18, $19, NOW(), NOW())
       RETURNING *
     `;
 
@@ -67,6 +71,8 @@ class ServiceRequest {
       latitude || null,
       longitude || null,
       selected_services ? JSON.stringify(selected_services) : null,
+      po_number || null,
+      additional_images ? JSON.stringify(additional_images) : '[]',
     ];
 
     const result = await pool.query(query, values);
@@ -351,7 +357,9 @@ class ServiceRequest {
       'contact_email',
       'instructions',
       'attachment_url',
-      'delivery_photo_url'
+      'delivery_photo_url',
+      'po_number',
+      'additional_images'
     ];
     const updateFields = [];
     const values = [];

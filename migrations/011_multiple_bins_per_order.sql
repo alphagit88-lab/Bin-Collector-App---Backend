@@ -23,7 +23,7 @@ CREATE INDEX IF NOT EXISTS idx_order_items_status ON order_items(status);
 ALTER TABLE service_requests 
 ADD COLUMN IF NOT EXISTS invoice_id VARCHAR(50);
 
--- Create index for invoice_id
+-- CREATE INDEX IF NOT EXISTS for invoice_id
 CREATE INDEX IF NOT EXISTS idx_service_requests_invoice_id ON service_requests(invoice_id);
 
 -- Add foreign key constraint to invoices table (if invoice_id exists in invoices)

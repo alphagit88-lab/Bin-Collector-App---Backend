@@ -11,8 +11,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index
-CREATE INDEX IF NOT EXISTS idx_system_settings_key ON system_settings(key);
+-- CREATE INDEX IF NOT EXISTS CREATE INDEX IF NOT EXISTS idx_system_settings_key ON system_settings(key);
 CREATE INDEX IF NOT EXISTS idx_system_settings_category ON system_settings(category);
 
 -- Insert default system settings

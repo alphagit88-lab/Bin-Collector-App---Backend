@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index on phone for faster lookups
+-- CREATE INDEX IF NOT EXISTS on phone for faster lookups
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 
--- Create index on role for filtering
+-- CREATE INDEX IF NOT EXISTS on role for filtering
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 -- Seed a default admin user if none exists

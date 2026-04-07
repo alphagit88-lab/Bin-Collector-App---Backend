@@ -12,12 +12,14 @@ const path = require('path');
 
 // Create service request (customer orders bins - supports multiple bins)
 const createServiceRequest = async (req, res) => {
-  const cleanupFile = () => {
-    if (req.file) {
-      const filePath = path.join(__dirname, '../uploads', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+  const cleanupFiles = () => {
+    if (req.files && Array.isArray(req.files)) {
+      req.files.forEach(file => {
+        const filePath = path.join(__dirname, '../uploads', file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      });
     }
   };
 
@@ -36,6 +38,7 @@ const createServiceRequest = async (req, res) => {
       longitude,
       selected_services,
       estimated_price,
+      po_number,
     } = req.body;
     
     console.log(`Booking request category: ${service_category}`);
@@ -58,7 +61,9 @@ const createServiceRequest = async (req, res) => {
       }
     }
 
-    const attachment_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const fileUrls = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
+    const main_attachment_url = fileUrls.length > 0 ? fileUrls[0] : null;
+    const additional_images = fileUrls.length > 1 ? fileUrls.slice(1) : [];
     const customerId = req.user.id;
     const requestId = `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
 
@@ -84,25 +89,38 @@ const createServiceRequest = async (req, res) => {
           quantity: 1,
         }];
       } else {
-        cleanupFile();
+        cleanupFiles();
         return res.status(400).json({
           success: false,
           message: 'Bins are required for residential or commercial bookings.',
         });
       }
 
+      // Step 1: Check if ANY suppliers cover the area
+      const suppliersInArea = await User.findQualifiedSuppliersForService(latitude, longitude, location);
+      
+      if (suppliersInArea.length === 0) {
+        cleanupFiles();
+        return res.status(404).json({
+          success: false,
+          message: 'Service unavailable: No suppliers found in your area',
+        });
+      }
+
+      // Step 2: Check if those suppliers have the requested bins available
       qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
-      if (qualifiedSuppliers.length > 0 && !finalEstimatedPrice) {
+      
+      if (qualifiedSuppliers.length === 0) {
+        cleanupFiles();
+        return res.status(404).json({
+          success: false,
+          message: 'The selected bins are not available from any supplier in your area',
+        });
+      }
+
+      if (!finalEstimatedPrice) {
         finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
       }
-    }
-
-    if (qualifiedSuppliers.length === 0) {
-      cleanupFile();
-      return res.status(404).json({
-        success: false,
-        message: 'Service unavailable: No suppliers found in your area',
-      });
     }
 
     const firstBin = orderItems.length > 0 ? orderItems[0] : null;
@@ -116,7 +134,8 @@ const createServiceRequest = async (req, res) => {
       location,
       start_date,
       end_date,
-      attachment_url,
+      end_date,
+      attachment_url: main_attachment_url,
       estimated_price: finalEstimatedPrice,
       payment_method,
       contact_number,
@@ -125,6 +144,8 @@ const createServiceRequest = async (req, res) => {
       latitude,
       longitude,
       selected_services,
+      po_number,
+      additional_images,
     });
 
     // Create order items for bins if any
@@ -319,7 +340,7 @@ const getRequestById = async (req, res) => {
   }
 };
 
-// Accept service request (supplier accepts) - directly confirms order
+// Accept service request (supplier accepts)
 const acceptRequest = async (req, res) => {
   try {
     const { id } = req.params;
@@ -358,13 +379,19 @@ const acceptRequest = async (req, res) => {
     }
     const paymentMethod = request.payment_method || 'online';
 
-    // Update request to confirmed with supplier
+    // After supplier accepts:
+    // - cash: booking is confirmed immediately (payment collected later)
+    // - online: booking waits for customer payment, then becomes confirmed on Stripe success
+    const nextStatus = paymentMethod === 'online' ? 'awaiting_payment' : 'confirmed';
+    const nextPaymentStatus = 'pending';
+
     await ServiceRequest.update(id, {
       supplier_id: supplierId,
-      status: 'confirmed',
+      status: nextStatus,
+      payment_status: nextPaymentStatus,
     });
 
-    // Create a bill for the confirmed booking
+    // Create a bill for the booking
     const billId = `BILL-${Date.now().toString(36).toUpperCase()}`;
     await Bill.create({
       bill_id: billId,
@@ -373,61 +400,16 @@ const acceptRequest = async (req, res) => {
       supplier_id: supplierId,
       total_amount: totalAmount,
       payment_method: paymentMethod,
-      payment_status: paymentMethod === 'online' ? 'paid' : 'unpaid'
+      payment_status: 'unpaid'
     });
 
     const updatedRequest = await ServiceRequest.findById(id);
 
-    let transaction = null;
-    let netAmount = null;
-
-    // Process payment based on payment method
-    if (paymentMethod === 'online') {
-      // Online payment: process immediately
-      const commissionSetting = await SystemSetting.findByKey('platform_commission_percentage');
-      const commissionPercentage = commissionSetting
-        ? parseFloat(commissionSetting.value) / 100
-        : 0.15;
-
-      const commissionAmount = totalAmount * commissionPercentage;
-      netAmount = totalAmount - commissionAmount;
-
-      // Create transaction
-      const transactionId = `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
-      transaction = await Transaction.create({
-        transaction_id: transactionId,
-        customer_id: request.customer_id,
-        supplier_id: supplierId,
-        booking_id: request.request_id,
-        amount: totalAmount,
-        commission_amount: commissionAmount,
-        net_amount: netAmount,
-        payment_method: 'stripe',
-        payment_status: 'completed',
-        transaction_type: 'payment',
-        description: `Payment for ${request.request_id}`,
-      });
-
-      // Update request payment status
-      await ServiceRequest.update(id, {
-        payment_status: 'paid',
-      });
-
-      // Credit supplier wallet
-      const wallet = await SupplierWallet.getOrCreate(supplierId);
-      await SupplierWallet.addCredit(
-        wallet.id,
-        netAmount,
-        transaction.id,
-        id,
-        `Payment for ${request.request_id}`
-      );
-    } else {
-      // Cash payment: will be collected when delivered
-      await ServiceRequest.update(id, {
-        payment_status: 'pending',
-      });
-    }
+    // NOTE: We do NOT mark online payments as paid here.
+    // Stripe payment success will be handled via webhook and will:
+    // - set payment_status = 'paid'
+    // - set status = 'confirmed'
+    // - create transaction + credit supplier wallet
 
     // Notify customer
     const io = req.app.get('io');
@@ -435,14 +417,6 @@ const acceptRequest = async (req, res) => {
       io.to(`customer_${request.customer_id}`).emit('request_accepted', {
         request: updatedRequest,
       });
-
-      if (transaction && netAmount !== null) {
-        io.to(`supplier_${supplierId}`).emit('payment_received', {
-          request: updatedRequest,
-          transaction,
-          amount: netAmount,
-        });
-      }
 
       // Notify supplier to refresh lists
       io.to(`supplier_${supplierId}`).emit('status_update', {
@@ -453,10 +427,11 @@ const acceptRequest = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Request accepted and confirmed successfully',
+      message: paymentMethod === 'online'
+        ? 'Request accepted. Awaiting customer payment.'
+        : 'Request accepted and confirmed successfully',
       data: {
-        request: updatedRequest,
-        transaction: transaction || null
+        request: updatedRequest
       },
     });
   } catch (error) {
@@ -1030,6 +1005,46 @@ const getAllServiceRequests = async (req, res) => {
   }
 };
 
+// Get data to repeat an order (pre-fills form)
+const getRepeatOrderData = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const request = await ServiceRequest.findById(id);
+
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    // Return template data for repeat order
+    const repeatData = {
+      service_category: request.service_category,
+      location: request.location,
+      latitude: request.latitude,
+      longitude: request.longitude,
+      contact_number: request.contact_number,
+      contact_email: request.contact_email,
+      instructions: request.instructions,
+      po_number: request.po_number,
+      // We don't repeat bins or dates as per requirement
+    };
+
+    res.json({
+      success: true,
+      data: { repeatData },
+    });
+  } catch (error) {
+    console.error('Repeat order data error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching repeat order data',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createServiceRequest,
   getMyRequests,
@@ -1041,4 +1056,5 @@ module.exports = {
   getOrderItems,
   markReadyToPickup,
   getAllServiceRequests,
+  getRepeatOrderData,
 };

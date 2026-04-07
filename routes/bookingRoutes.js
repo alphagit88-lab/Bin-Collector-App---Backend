@@ -11,16 +11,18 @@ const {
   getOrderItems,
   markReadyToPickup,
   getAllServiceRequests,
+  getRepeatOrderData,
 } = require('../controllers/bookingController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
 const upload = require('../utils/upload');
 
 // Customer routes
-router.post('/', authenticate, upload.single('attachment'), createServiceRequest);
+router.post('/', authenticate, upload.array('attachments', 10), createServiceRequest);
 router.get('/my-requests', authenticate, getMyRequests);
 router.get('/:id', authenticate, getRequestById);
 router.get('/:id/order-items', authenticate, getOrderItems);
+router.get('/:id/repeat', authenticate, getRepeatOrderData);
 router.put('/:id/ready-to-pickup', authenticate, markReadyToPickup);
 
 // Supplier routes

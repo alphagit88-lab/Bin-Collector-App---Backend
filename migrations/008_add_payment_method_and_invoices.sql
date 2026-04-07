@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index for invoices
+-- CREATE INDEX IF NOT EXISTS for invoices
 CREATE INDEX IF NOT EXISTS idx_invoices_service_request_id ON invoices(service_request_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_supplier_id ON invoices(supplier_id);

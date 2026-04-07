@@ -26,7 +26,7 @@ const getBinTypeById = async (req, res) => {
   try {
     const { id } = req.params;
     const binType = await BinType.findById(id);
-    
+
     if (!binType) {
       return res.status(404).json({
         success: false,
@@ -60,7 +60,7 @@ const createBinType = async (req, res) => {
     }
 
     const binType = await BinType.create({ name, description, display_order });
-    
+
     res.status(201).json({
       success: true,
       message: 'Bin type created successfully',
@@ -88,7 +88,7 @@ const updateBinType = async (req, res) => {
     const { name, description, is_active, display_order } = req.body;
 
     const binType = await BinType.update(id, { name, description, is_active, display_order });
-    
+
     if (!binType) {
       return res.status(404).json({
         success: false,
@@ -115,7 +115,7 @@ const deleteBinType = async (req, res) => {
   try {
     const { id } = req.params;
     const binType = await BinType.delete(id);
-    
+
     if (!binType) {
       return res.status(404).json({
         success: false,
@@ -161,7 +161,7 @@ const getBinSizeById = async (req, res) => {
   try {
     const { id } = req.params;
     const binSize = await BinSize.findById(id);
-    
+
     if (!binSize) {
       return res.status(404).json({
         success: false,
@@ -194,13 +194,13 @@ const createBinSize = async (req, res) => {
       });
     }
 
-    const binSize = await BinSize.create({ 
-      bin_type_id, 
-      size, 
-      capacity_cubic_meters, 
-      display_order 
+    const binSize = await BinSize.create({
+      bin_type_id,
+      size,
+      capacity_cubic_meters,
+      display_order
     });
-    
+
     res.status(201).json({
       success: true,
       message: 'Bin size created successfully',
@@ -228,7 +228,7 @@ const updateBinSize = async (req, res) => {
     const { size, capacity_cubic_meters, is_active, display_order } = req.body;
 
     const binSize = await BinSize.update(id, { size, capacity_cubic_meters, is_active, display_order });
-    
+
     if (!binSize) {
       return res.status(404).json({
         success: false,
@@ -255,7 +255,7 @@ const deleteBinSize = async (req, res) => {
   try {
     const { id } = req.params;
     const binSize = await BinSize.delete(id);
-    
+
     if (!binSize) {
       return res.status(404).json({
         success: false,
@@ -280,7 +280,7 @@ const deleteBinSize = async (req, res) => {
 const getBinPricesByLocation = async (req, res) => {
   try {
     const { lat, lon } = req.query;
-    
+
     if (!lat || !lon) {
       return res.status(400).json({
         success: false,
@@ -290,18 +290,26 @@ const getBinPricesByLocation = async (req, res) => {
 
     // 1. Find service areas covering this location
     const serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
-    
+
     if (serviceAreas.length === 0) {
       return res.json({
         success: true,
         data: { prices: [] },
-        message: 'No service areas found for this location'
+        message: 'No suppliers found in this area'
       });
     }
 
     // 2. Get finalized prices for these service areas
     const areaIds = serviceAreas.map(sa => sa.id);
     const prices = await ServiceAreaBin.getFinalPricesForAreas(areaIds);
+
+    if (prices.length === 0) {
+      return res.json({
+        success: true,
+        data: { prices: [] },
+        message: 'Suppliers have not your selected bin for this location'
+      });
+    }
 
     res.json({
       success: true,

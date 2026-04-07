@@ -19,7 +19,7 @@ ALTER TABLE service_area_bins ALTER COLUMN bin_size_id DROP NOT NULL;
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'service_area_bins' AND column_name = 'bin_type_id') THEN
-        ALTER TABLE service_area_bins ADD COLUMN bin_type_id INTEGER REFERENCES bin_types(id) ON DELETE CASCADE;
+        ALTER TABLE service_area_bins ADD COLUMN IF NOT EXISTS bin_type_id INTEGER REFERENCES bin_types(id) ON DELETE CASCADE;
     END IF;
 END $$;
 
@@ -42,7 +42,7 @@ BEGIN
         WHERE table_name = 'service_requests' 
         AND column_name = 'delivery_photo_url'
     ) THEN
-        ALTER TABLE service_requests ADD COLUMN delivery_photo_url TEXT;
+        ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS delivery_photo_url TEXT;
     END IF;
 END $$;
 

@@ -44,6 +44,7 @@ const signup = async (req, res) => {
           email: user.email,
           role: user.role,
           supplierType: user.supplierType,
+          canViewBilling: user.canViewBilling,
         },
         token,
       },
@@ -97,6 +98,7 @@ const login = async (req, res) => {
           phone: user.phone,
           email: user.email,
           role: user.role,
+          canViewBilling: user.canViewBilling,
         },
         token,
       },
@@ -123,7 +125,12 @@ const getMe = async (req, res) => {
 
     res.json({
       success: true,
-      data: { user },
+      data: { 
+        user: {
+          ...user,
+          canViewBilling: user.canViewBilling
+        }
+      },
     });
   } catch (error) {
     console.error('Get me error:', error);
