@@ -73,16 +73,26 @@ exports.sendMessage = async (req, res) => {
 
     // Emit via Socket.io if available
     const io = req.app.get('io');
+    const recipientId = conversation.participant1_id === req.user.id 
+      ? conversation.participant2_id 
+      : conversation.participant1_id;
+
     if (io) {
-      const recipientId = conversation.participant1_id === req.user.id 
-        ? conversation.participant2_id 
-        : conversation.participant1_id;
-      
       io.to(`user_${recipientId}`).emit('new_message', {
         conversationId,
         message
       });
     }
+
+    // Save notification to database
+    const Notification = require('../models/Notification');
+    Notification.create({
+      userId: recipientId,
+      title: 'New Message',
+      message: messageText || 'You received a new message',
+      type: 'message',
+      relatedId: conversationId
+    }).catch(err => console.error('DB Notification error:', err));
 
     res.json({
       success: true,

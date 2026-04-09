@@ -2,16 +2,17 @@ const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 class User {
-  static async create({ name, phone, email, role, password, supplierType, supplierId }) {
+  static async create({ name, phone, email, role, password, supplierType, supplierId, canViewBilling }) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const supplier_type = role === 'supplier' ? (supplierType || null) : null;
     const supplier_id = role === 'driver' ? (supplierId || null) : null;
+    const can_view_billing = canViewBilling === true ? true : false;
     const query = `
       INSERT INTO users (name, phone, email, role, supplier_type, supplier_id, password_hash, push_token, can_view_billing, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
       RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
-    const values = [name, phone, email || null, role, supplier_type, supplier_id, hashedPassword, null];
+    const values = [name, phone, email || null, role, supplier_type, supplier_id, hashedPassword, null, can_view_billing];
     const result = await pool.query(query, values);
     return result.rows[0];
   }

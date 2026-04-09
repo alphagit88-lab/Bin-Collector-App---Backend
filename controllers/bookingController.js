@@ -7,6 +7,7 @@ const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const Bill = require('../models/Bill');
+const Notification = require('../models/Notification');
 const fs = require('fs');
 const path = require('path');
 
@@ -188,6 +189,15 @@ const createServiceRequest = async (req, res) => {
           message,
         };
         io.to(`supplier_${supplier.id}`).emit('new_request', payload);
+
+        // Save notification to database
+        Notification.create({
+          userId: supplier.id,
+          title: 'New Service Request',
+          message: message,
+          type: 'new_request',
+          relatedId: fullRequest.id
+        }).catch(err => console.error('DB Notification error:', err));
       });
 
       const pushTokens = qualifiedSuppliers.map(s => s.pushToken).filter(token => token);
@@ -414,9 +424,20 @@ const acceptRequest = async (req, res) => {
     // Notify customer
     const io = req.app.get('io');
     if (io) {
+      const msg = `Your request #${updatedRequest.request_id} has been accepted by a supplier.`;
+      
       io.to(`customer_${request.customer_id}`).emit('request_accepted', {
         request: updatedRequest,
       });
+
+      // Save notification to database
+      Notification.create({
+        userId: request.customer_id,
+        title: 'Request Accepted',
+        message: msg,
+        type: 'order',
+        relatedId: updatedRequest.id
+      }).catch(err => console.error('DB Notification error:', err));
 
       // Notify supplier to refresh lists
       io.to(`supplier_${supplierId}`).emit('status_update', {
@@ -817,15 +838,35 @@ const updateRequestStatus = async (req, res) => {
       }
     }
 
-    // Notify customer using the user_${id} room to match frontend
+    // Notify customer using both generic and specific rooms
     const io = req.app.get('io');
-    if (io && updatedRequest) {
+    if (io) {
+      const msg = `Your booking #${updatedRequest.request_id} status is now ${updatedRequest.status.replace(/_/g, ' ')}`;
+      
+      // Emit to generic user room (used by AuthContext for global notifications)
       io.to(`user_${updatedRequest.customer_id}`).emit('status_update', {
         booking_id: updatedRequest.id,
         status: updatedRequest.status,
-        message: `Your booking #${updatedRequest.request_id.slice(-5).toUpperCase()} status is now ${updatedRequest.status.replace(/_/g, ' ')}`,
+        message: msg,
         request: updatedRequest,
       });
+
+      // Emit to specific customer room (used by some specific screens)
+      io.to(`customer_${request.customer_id}`).emit('status_update', {
+        booking_id: updatedRequest.id,
+        status: updatedRequest.status,
+        message: msg,
+        request: updatedRequest,
+      });
+
+      // Save notification to database for persistent list
+      Notification.create({
+        userId: request.customer_id,
+        title: 'Booking Status Updated',
+        message: msg,
+        type: 'status_update',
+        relatedId: updatedRequest.id
+      }).catch(err => console.error('DB Notification error:', err));
     }
 
     // Push Notification to Customer
@@ -945,12 +986,22 @@ const markReadyToPickup = async (req, res) => {
     // Notify supplier
     const io = req.app.get('io');
     if (io && request.supplier_id) {
+      const msg = `Your booking #${updatedRequest.request_id} is now ready for pickup`;
       io.to(`supplier_${request.supplier_id}`).emit('status_update', {
         booking_id: updatedRequest.id,
         status: updatedRequest.status,
-        message: `Your booking #${updatedRequest.request_id.slice(-5).toUpperCase()} is now ready for pickup`,
+        message: msg,
         request: updatedRequest,
       });
+
+      // Save notification to database
+      Notification.create({
+        userId: request.supplier_id,
+        title: 'Bin Ready for Pickup',
+        message: msg,
+        type: 'status_update',
+        relatedId: updatedRequest.id
+      }).catch(err => console.error('DB Notification error:', err));
     }
 
     // Push Notification to Supplier

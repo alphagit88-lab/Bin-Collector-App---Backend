@@ -50,7 +50,7 @@ const createAdmin = async (req, res) => {
 // Create user (admin, customer, or supplier)
 const createUser = async (req, res) => {
   try {
-    const { name, phone, email, role, password, supplierType, supplierId } = req.body;
+    const { name, phone, email, role, password, supplierType, supplierId, canViewBilling } = req.body;
 
     if (!['admin', 'customer', 'supplier', 'driver'].includes(role)) {
       return res.status(400).json({
@@ -94,6 +94,7 @@ const createUser = async (req, res) => {
       password,
       supplierType,
       supplierId,
+      canViewBilling,
     });
 
     res.status(201).json({
@@ -211,7 +212,7 @@ const updateAdmin = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, role, supplierId, supplierType } = req.body;
+    const { name, email, role, supplierId, supplierType, canViewBilling } = req.body;
 
     const user = await User.findById(id);
     if (!user) {
@@ -221,7 +222,7 @@ const updateUser = async (req, res) => {
       });
     }
 
-    const updatedUser = await User.update(id, { name, email, role, supplierId, supplierType });
+    const updatedUser = await User.update(id, { name, email, role, supplierId, supplierType, canViewBilling });
     
     res.json({
       success: true,
