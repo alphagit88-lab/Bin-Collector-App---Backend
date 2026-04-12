@@ -1,4 +1,5 @@
 const PhysicalBin = require('../models/PhysicalBin');
+const ServiceAreaBin = require('../models/ServiceAreaBin');
 const pool = require('../config/database');
 
 // Get all bins (with filters)
@@ -56,12 +57,15 @@ exports.getBinByCode = async (req, res) => {
 
 // Create bin
 exports.createBin = async (req, res) => {
+  const t = await pool.connect();
   try {
-    const { bin_code, bin_type_id, bin_size_id, supplier_id, status, notes } = req.body;
+    const { bin_code, bin_type_id, bin_size_id, supplier_id, status, notes, area_prices } = req.body;
 
     if (!bin_type_id) {
       return res.status(400).json({ success: false, message: 'Bin type is required' });
     }
+
+    await t.query('BEGIN');
 
     // If user is supplier, assign bin to themselves
     let finalSupplierId = supplier_id;
@@ -79,6 +83,7 @@ exports.createBin = async (req, res) => {
       // Check if code already exists
       const existing = await PhysicalBin.findByCode(finalBinCode);
       if (existing) {
+        await t.query('ROLLBACK');
         return res.status(400).json({ success: false, message: 'Bin code already exists' });
       }
     }
@@ -92,45 +97,150 @@ exports.createBin = async (req, res) => {
       notes
     });
 
+    // Process area prices if provided
+    if (area_prices && Array.isArray(area_prices)) {
+      for (const area of area_prices) {
+        if (area.price && parseFloat(area.price) > 0) {
+          // Check if price already exists for this area + type/size
+          const checkQuery = `
+            SELECT id, supplier_price, admin_final_price, is_active 
+            FROM service_area_bins 
+            WHERE service_area_id = $1 
+              AND bin_type_id = $2 
+              AND (bin_size_id = $3 OR (bin_size_id IS NULL AND $3 IS NULL))
+          `;
+          const checkResult = await t.query(checkQuery, [
+            area.service_area_id, 
+            bin_type_id, 
+            bin_size_id || null
+          ]);
+
+          const price = parseFloat(area.price);
+
+          if (checkResult.rows.length > 0) {
+            const current = checkResult.rows[0];
+            // Only update if price is different
+            if (parseFloat(current.supplier_price) !== price) {
+              await t.query(`
+                UPDATE service_area_bins 
+                SET supplier_price = $1, is_active = false, updated_at = NOW() 
+                WHERE id = $2
+              `, [price, current.id]);
+            }
+          } else {
+            // Create new record (pending approval)
+            await t.query(`
+              INSERT INTO service_area_bins (service_area_id, bin_type_id, bin_size_id, supplier_price, is_active)
+              VALUES ($1, $2, $3, $4, false)
+            `, [area.service_area_id, bin_type_id, bin_size_id || null, price]);
+          }
+        }
+      }
+    }
+
+    await t.query('COMMIT');
+
     const fullBin = await PhysicalBin.findById(bin.id);
     res.status(201).json({ success: true, bin: fullBin });
   } catch (error) {
+    await t.query('ROLLBACK');
     console.error('Error creating bin:', error);
     res.status(500).json({ success: false, message: 'Failed to create bin', error: error.message });
+  } finally {
+    t.release();
   }
 };
 
 // Update bin
 exports.updateBin = async (req, res) => {
+  const t = await pool.connect();
   try {
     const binId = parseInt(req.params.id);
-    const updates = req.body;
+    const { area_prices, ...updates } = req.body;
+
+    await t.query('BEGIN');
 
     // Check if bin exists and user has permission
     const existingBin = await PhysicalBin.findById(binId);
     if (!existingBin) {
+      await t.query('ROLLBACK');
       return res.status(404).json({ success: false, message: 'Bin not found' });
     }
 
     // Suppliers can only update their own bins (and can't change supplier_id)
     if (req.user.role === 'supplier') {
       if (existingBin.supplier_id !== req.user.id) {
+        await t.query('ROLLBACK');
         return res.status(403).json({ success: false, message: 'You can only update your own bins' });
       }
       // Remove supplier_id from updates if supplier is trying to change it
       delete updates.supplier_id;
     }
 
-    const bin = await PhysicalBin.update(binId, updates);
-    if (!bin) {
-      return res.status(404).json({ success: false, message: 'Bin not found' });
+    // Update bin properties if any provided
+    if (Object.keys(updates).length > 0) {
+      const binResult = await PhysicalBin.update(binId, updates);
+      if (!binResult) {
+        await t.query('ROLLBACK');
+        return res.status(404).json({ success: false, message: 'Bin not found' });
+      }
     }
+
+    // Process area prices if provided
+    if (area_prices && Array.isArray(area_prices)) {
+      const bin_type_id = updates.bin_type_id || existingBin.bin_type_id;
+      const bin_size_id = updates.bin_size_id || existingBin.bin_size_id;
+
+      for (const area of area_prices) {
+        if (area.price !== undefined) {
+          const price = parseFloat(area.price);
+          if (isNaN(price)) continue;
+
+          // Check if price already exists for this area + type/size
+          const checkQuery = `
+            SELECT id, supplier_price, admin_final_price, is_active 
+            FROM service_area_bins 
+            WHERE service_area_id = $1 
+              AND bin_type_id = $2 
+              AND (bin_size_id = $3 OR (bin_size_id IS NULL AND $3 IS NULL))
+          `;
+          const checkResult = await t.query(checkQuery, [
+            area.service_area_id, 
+            bin_type_id, 
+            bin_size_id || null
+          ]);
+
+          if (checkResult.rows.length > 0) {
+            const current = checkResult.rows[0];
+            // Only update if price is different
+            if (parseFloat(current.supplier_price) !== price) {
+              await t.query(`
+                UPDATE service_area_bins 
+                SET supplier_price = $1, is_active = false, updated_at = NOW() 
+                WHERE id = $2
+              `, [price, current.id]);
+            }
+          } else if (price > 0) {
+            // Create new record (pending approval)
+            await t.query(`
+              INSERT INTO service_area_bins (service_area_id, bin_type_id, bin_size_id, supplier_price, is_active)
+              VALUES ($1, $2, $3, $4, false)
+            `, [area.service_area_id, bin_type_id, bin_size_id || null, price]);
+          }
+        }
+      }
+    }
+
+    await t.query('COMMIT');
 
     const fullBin = await PhysicalBin.findById(binId);
     res.json({ success: true, bin: fullBin });
   } catch (error) {
+    await t.query('ROLLBACK');
     console.error('Error updating bin:', error);
     res.status(500).json({ success: false, message: 'Failed to update bin', error: error.message });
+  } finally {
+    t.release();
   }
 };
 

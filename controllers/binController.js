@@ -2,6 +2,7 @@ const BinType = require('../models/BinType');
 const BinSize = require('../models/BinSize');
 const ServiceArea = require('../models/ServiceArea');
 const ServiceAreaBin = require('../models/ServiceAreaBin');
+const pool = require('../config/database');
 
 // Bin Types
 const getAllBinTypes = async (req, res) => {
@@ -325,6 +326,65 @@ const getBinPricesByLocation = async (req, res) => {
   }
 };
 
+const getSupplierBinPrices = async (req, res) => {
+  try {
+    const { binTypeId, binSizeId } = req.query;
+    const supplierId = req.user.id;
+
+    if (!binTypeId) {
+      return res.status(400).json({
+        success: false,
+        message: 'binTypeId is required',
+      });
+    }
+
+    // 1. Get all service areas for this supplier
+    const serviceAreas = await ServiceArea.findBySupplierId(supplierId);
+
+    if (serviceAreas.length === 0) {
+      return res.json({
+        success: true,
+        data: { areas: [] },
+      });
+    }
+
+    // 2. Get existing prices for these areas + bin type/size
+    const areaIds = serviceAreas.map(sa => sa.id);
+    const query = `
+      SELECT service_area_id, supplier_price, admin_final_price, is_active
+      FROM service_area_bins
+      WHERE service_area_id = ANY($1)
+        AND bin_type_id = $2
+        AND (bin_size_id = $3 OR (bin_size_id IS NULL AND $3 IS NULL))
+    `;
+    const result = await pool.query(query, [areaIds, parseInt(binTypeId), binSizeId ? parseInt(binSizeId) : null]);
+    
+    const areasWithPrices = serviceAreas.map(area => {
+      const priceData = result.rows.find(r => r.service_area_id === area.id);
+      return {
+        id: area.id,
+        city: area.city,
+        country: area.country,
+        currentPrice: priceData ? priceData.supplier_price : null,
+        isActive: priceData ? priceData.is_active : false,
+        adminPrice: priceData ? priceData.admin_final_price : null
+      };
+    });
+
+    res.json({
+      success: true,
+      data: { areas: areasWithPrices },
+    });
+  } catch (error) {
+    console.error('Get supplier bin prices error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching supplier bin prices',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllBinTypes,
   getBinTypeById,
@@ -337,4 +397,5 @@ module.exports = {
   updateBinSize,
   deleteBinSize,
   getBinPricesByLocation,
+  getSupplierBinPrices,
 };
