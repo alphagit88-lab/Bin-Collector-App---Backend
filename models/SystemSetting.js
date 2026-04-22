@@ -1,7 +1,7 @@
 const pool = require('../config/database');
 
 class SystemSetting {
-  static async findAll(category = null, includePublic = false) {
+  static async findAll(category = null, visibility = 'private') {
     let query = 'SELECT * FROM system_settings WHERE 1=1';
     const conditions = [];
     const values = [];
@@ -12,9 +12,10 @@ class SystemSetting {
       values.push(category);
     }
 
-    if (!includePublic) {
-      conditions.push(`is_public = $${paramCount++}`);
-      values.push(false);
+    if (visibility === 'public') {
+      conditions.push(`is_public = true`);
+    } else if (visibility === 'private') {
+      conditions.push(`is_public = false`);
     }
 
     if (conditions.length > 0) {

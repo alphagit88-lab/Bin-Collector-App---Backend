@@ -23,12 +23,13 @@ router.get('/public/:key', async (req, res) => {
   }
 });
 
-// All system setting routes require authentication and admin role
+// Routes requiring authentication
 router.use(authenticate);
-router.use(requireAdmin);
-
 router.get('/', getAllSettings);
 router.get('/:key', getSettingByKey);
+
+// Routes requiring admin role
+router.use(requireAdmin);
 router.post('/', createSetting);
 router.put('/:key', updateSetting);
 router.delete('/:key', deleteSetting);

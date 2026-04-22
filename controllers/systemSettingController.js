@@ -4,7 +4,16 @@ const getAllSettings = async (req, res) => {
   try {
     const category = req.query.category || null;
     const includePublic = req.query.includePublic === 'true';
-    const settings = await SystemSetting.findAll(category, includePublic);
+    const role = req.user.role;
+
+    let visibility = 'private';
+    if (role !== 'admin') {
+      visibility = 'public';
+    } else if (includePublic) {
+      visibility = 'all';
+    }
+
+    const settings = await SystemSetting.findAll(category, visibility);
     res.json({
       success: true,
       data: { settings },

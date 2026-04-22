@@ -22,6 +22,11 @@ class ServiceRequest {
       selected_services,
       po_number,
       additional_images,
+      base_price,
+      additional_duration_charge,
+      duration_days,
+      exceeded_days,
+      project_id,
     } = data;
 
     const query = `
@@ -46,10 +51,15 @@ class ServiceRequest {
         selected_services,
         po_number,
         additional_images,
+        base_price,
+        additional_duration_charge,
+        duration_days,
+        exceeded_days,
+        project_id,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, $18, $19, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
       RETURNING *
     `;
 
@@ -73,6 +83,11 @@ class ServiceRequest {
       selected_services ? JSON.stringify(selected_services) : null,
       po_number || null,
       additional_images ? JSON.stringify(additional_images) : '[]',
+      base_price || null,
+      additional_duration_charge || 0,
+      duration_days || null,
+      exceeded_days || 0,
+      project_id || null,
     ];
 
     const result = await pool.query(query, values);
@@ -96,8 +111,8 @@ class ServiceRequest {
         c.push_token AS customer_push_token,
         s.push_token AS supplier_push_token,
         pb.bin_code,
-        COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
         b.bill_id,
+        p.name AS project_name,
         (SELECT STRING_AGG(name, ', ') 
          FROM service_categories 
          WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
@@ -114,6 +129,7 @@ class ServiceRequest {
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
       LEFT JOIN bills b ON sr.id = b.service_request_id
+      LEFT JOIN projects p ON sr.project_id = p.id
       WHERE sr.id = $1
     `;
     const result = await pool.query(query, [id]);
@@ -136,6 +152,7 @@ class ServiceRequest {
         pb.bin_code,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
         b.bill_id,
+        p.name AS project_name,
         (SELECT STRING_AGG(name, ', ') 
          FROM service_categories 
          WHERE id = ANY(ARRAY(SELECT jsonb_array_elements_text(sr.selected_services)::int))
@@ -152,6 +169,7 @@ class ServiceRequest {
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
       LEFT JOIN bills b ON sr.id = b.service_request_id
+      LEFT JOIN projects p ON sr.project_id = p.id
       WHERE sr.request_id = $1
     `;
     const result = await pool.query(query, [requestId]);
@@ -165,6 +183,7 @@ class ServiceRequest {
         bt.name AS bin_type_name,
         bs.size AS bin_size,
         pb.bin_code,
+        p.name AS project_name,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count,
         (SELECT STRING_AGG(name, ', ') 
@@ -179,6 +198,7 @@ class ServiceRequest {
       LEFT JOIN bin_sizes bs ON sr.bin_size_id = bs.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
+      LEFT JOIN projects p ON sr.project_id = p.id
       WHERE sr.customer_id = $1
     `;
     const values = [customerId];
@@ -226,6 +246,7 @@ class ServiceRequest {
         d.phone AS driver_phone,
         d.push_token AS driver_push_token,
         pb.bin_code,
+        p.name AS project_name,
         COALESCE(sr.invoice_id, i.invoice_id) AS invoice_id,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.service_request_id = sr.id) AS order_items_count,
         (SELECT STRING_AGG(name, ', ') 
@@ -242,6 +263,7 @@ class ServiceRequest {
       LEFT JOIN users d ON sr.driver_id = d.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
+      LEFT JOIN projects p ON sr.project_id = p.id
       WHERE sr.supplier_id = $1
     `;
     const values = [supplierId];
@@ -359,7 +381,11 @@ class ServiceRequest {
       'attachment_url',
       'delivery_photo_url',
       'po_number',
-      'additional_images'
+      'additional_images',
+      'base_price',
+      'additional_duration_charge',
+      'duration_days',
+      'exceeded_days'
     ];
     const updateFields = [];
     const values = [];

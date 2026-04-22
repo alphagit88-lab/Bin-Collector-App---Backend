@@ -40,8 +40,9 @@ const createServiceRequest = async (req, res) => {
       selected_services,
       estimated_price,
       po_number,
+      project_id,
     } = req.body;
-    
+
     console.log(`Booking request category: ${service_category}`);
     console.log(`Booking coordinates: lat=${latitude}, lon=${longitude}`);
     console.log(`Booking location text: ${location}`);
@@ -99,7 +100,7 @@ const createServiceRequest = async (req, res) => {
 
       // Step 1: Check if ANY suppliers cover the area
       const suppliersInArea = await User.findQualifiedSuppliersForService(latitude, longitude, location);
-      
+
       if (suppliersInArea.length === 0) {
         cleanupFiles();
         return res.status(404).json({
@@ -110,7 +111,7 @@ const createServiceRequest = async (req, res) => {
 
       // Step 2: Check if those suppliers have the requested bins available
       qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
-      
+
       if (qualifiedSuppliers.length === 0) {
         cleanupFiles();
         return res.status(404).json({
@@ -122,6 +123,46 @@ const createServiceRequest = async (req, res) => {
       if (!finalEstimatedPrice) {
         finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
       }
+
+      // Duration-based additional charges
+      const startDate = new Date(start_date);
+      const endDate = new Date(end_date);
+      const diffTime = Math.abs(endDate - startDate);
+      const durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+
+      let additionalCharge = 0;
+      let exceededDays = 0;
+      let limitDays = 0;
+
+      if (service_category === 'commercial' || service_category === 'residential') {
+        const limitKey = service_category === 'commercial' ? 'commercial_duration_limit' : 'residential_duration_limit';
+        const limitSetting = await SystemSetting.findByKey(limitKey);
+        const rateSetting = await SystemSetting.findByKey('additional_day_charge');
+
+        if (!limitSetting || !rateSetting) {
+          throw new Error(`Pricing configuration missing. Please contact administrator.`);
+        }
+
+        limitDays = parseInt(limitSetting.value);
+        const dailyRate = parseFloat(rateSetting.value);
+
+        if (durationDays > limitDays) {
+          exceededDays = durationDays - limitDays;
+          additionalCharge = exceededDays * dailyRate;
+
+          // Add to final estimated price
+          finalEstimatedPrice += additionalCharge;
+        }
+      }
+
+      const basePrice = finalEstimatedPrice - additionalCharge;
+
+      req.calculatedPricing = {
+        base_price: basePrice,
+        additional_duration_charge: additionalCharge,
+        duration_days: durationDays,
+        exceeded_days: exceededDays
+      };
     }
 
     const firstBin = orderItems.length > 0 ? orderItems[0] : null;
@@ -135,7 +176,6 @@ const createServiceRequest = async (req, res) => {
       location,
       start_date,
       end_date,
-      end_date,
       attachment_url: main_attachment_url,
       estimated_price: finalEstimatedPrice,
       payment_method,
@@ -147,6 +187,11 @@ const createServiceRequest = async (req, res) => {
       selected_services,
       po_number,
       additional_images,
+      project_id: project_id || null,
+      base_price: req.calculatedPricing?.base_price,
+      additional_duration_charge: req.calculatedPricing?.additional_duration_charge,
+      duration_days: req.calculatedPricing?.duration_days,
+      exceeded_days: req.calculatedPricing?.exceeded_days,
     });
 
     // Create order items for bins if any
@@ -425,7 +470,7 @@ const acceptRequest = async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       const msg = `Your request #${updatedRequest.request_id} has been accepted by a supplier.`;
-      
+
       io.to(`customer_${request.customer_id}`).emit('request_accepted', {
         request: updatedRequest,
       });
@@ -842,7 +887,7 @@ const updateRequestStatus = async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       const msg = `Your booking #${updatedRequest.request_id} status is now ${updatedRequest.status.replace(/_/g, ' ')}`;
-      
+
       // Emit to generic user room (used by AuthContext for global notifications)
       io.to(`user_${updatedRequest.customer_id}`).emit('status_update', {
         booking_id: updatedRequest.id,
