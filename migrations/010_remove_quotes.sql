@@ -21,11 +21,16 @@ ALTER TABLE service_requests
 ADD CONSTRAINT service_requests_status_check 
 CHECK (status IN (
   'pending', 
+  'quoted', 
+  'accepted', 
   'confirmed', 
   'on_delivery',
   'delivered',
   'ready_to_pickup',
   'pickup',
   'completed', 
-  'cancelled'
+  'cancelled',
+  'cash_collected',
+  'awaiting_payment',
+  'paid'
 ));

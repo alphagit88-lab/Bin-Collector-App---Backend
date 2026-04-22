@@ -35,7 +35,10 @@ CHECK (status IN (
   'ready_to_pickup',
   'pickup',
   'completed', 
-  'cancelled'
+  'cancelled',
+  'cash_collected',
+  'awaiting_payment',
+  'paid'
 ));
 
 -- Create invoices table (quote_id will be removed in migration 010)

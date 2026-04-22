@@ -25,5 +25,6 @@ CHECK (status IN (
   'completed', 
   'cancelled',
   'cash_collected',
-  'awaiting_payment'
+  'awaiting_payment',
+  'paid'
 ));
