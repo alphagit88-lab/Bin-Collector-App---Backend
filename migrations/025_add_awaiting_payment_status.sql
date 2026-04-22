@@ -17,5 +17,6 @@ CHECK (status IN (
   'picked_up',
   'pickup',
   'completed',
-  'cancelled'
+  'cancelled',
+  'paid'
 ));

@@ -17,7 +17,9 @@ CHECK (status IN (
   'picked_up',
   'pickup',
   'completed', 
-  'cancelled'
+  'cancelled',
+  'awaiting_payment',
+  'paid'
 ));
 
 -- 2. Update order_items status check constraint
