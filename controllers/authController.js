@@ -128,7 +128,8 @@ const getMe = async (req, res) => {
       data: { 
         user: {
           ...user,
-          canViewBilling: user.canViewBilling
+          canViewBilling: user.canViewBilling,
+          profilePhoto: user.profilePhoto,
         }
       },
     });
@@ -166,6 +167,44 @@ const updateProfile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error updating profile',
+      error: error.message,
+    });
+  }
+};
+
+const updateProfilePhoto = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No photo provided',
+      });
+    }
+
+    // Determine the URL path for the uploaded photo
+    const profilePhoto = `/uploads/${req.file.filename}`;
+
+    const user = await User.update(userId, { profilePhoto });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Profile photo updated successfully',
+      data: { user },
+    });
+  } catch (error) {
+    console.error('Update profile photo error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile photo',
       error: error.message,
     });
   }
@@ -239,6 +278,7 @@ module.exports = {
   login,
   getMe,
   updateProfile,
+  updateProfilePhoto,
   changePassword,
   updatePushToken,
 };

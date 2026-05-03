@@ -10,7 +10,7 @@ class User {
     const query = `
       INSERT INTO users (name, phone, email, role, supplier_type, supplier_id, password_hash, push_token, can_view_billing, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", can_view_billing AS "canViewBilling", created_at, updated_at
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
     const values = [name, phone, email || null, role, supplier_type, supplier_id, hashedPassword, null, can_view_billing];
     const result = await pool.query(query, values);
@@ -29,6 +29,7 @@ class User {
         supplier_id AS "supplierId",
         password_hash,
         push_token AS "pushToken",
+        profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
         created_at,
         updated_at
@@ -50,6 +51,7 @@ class User {
         supplier_type AS "supplierType",
         supplier_id AS "supplierId",
         push_token AS "pushToken",
+        profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
         created_at, 
         updated_at 
@@ -70,6 +72,7 @@ class User {
         role,
         supplier_type AS "supplierType",
         supplier_id AS "supplierId",
+        profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
         created_at, 
         updated_at 
@@ -88,6 +91,7 @@ class User {
         phone, 
         email, 
         role,
+        profile_photo AS "profilePhoto",
         created_at, 
         updated_at 
       FROM users 
@@ -98,7 +102,7 @@ class User {
     return result.rows;
   }
 
-  static async update(id, { name, email, role, supplierType, supplierId }) {
+  static async update(id, { name, email, role, supplierType, supplierId, profilePhoto }) {
     const updates = [];
     const values = [];
     let paramCount = 1;
@@ -127,6 +131,10 @@ class User {
       updates.push(`can_view_billing = $${paramCount++}`);
       values.push(arguments[1].canViewBilling);
     }
+    if (profilePhoto !== undefined) {
+      updates.push(`profile_photo = $${paramCount++}`);
+      values.push(profilePhoto || null);
+    }
 
     if (updates.length === 0) {
       return await this.findById(id);
@@ -139,7 +147,7 @@ class User {
       UPDATE users 
       SET ${updates.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", can_view_billing AS "canViewBilling", created_at, updated_at
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
     const result = await pool.query(query, values);
     return result.rows[0];
@@ -192,6 +200,7 @@ class User {
         u.phone,
         u.email,
         u.push_token AS "pushToken",
+        u.profile_photo AS "profilePhoto",
         COUNT(pb.id) as available_bin_count
       FROM users u
       INNER JOIN physical_bins pb ON u.id = pb.supplier_id
@@ -316,6 +325,7 @@ class User {
         u.phone, 
         u.email, 
         u.push_token AS "pushToken",
+        u.profile_photo AS "profilePhoto",
         st.total_price
       FROM users u
       JOIN suppliers_with_stock sws ON u.id = sws.supplier_id
@@ -350,7 +360,8 @@ class User {
         u.name,
         u.phone,
         u.email,
-        u.push_token AS "pushToken"
+        u.push_token AS "pushToken",
+        u.profile_photo AS "profilePhoto"
       FROM users u
       INNER JOIN service_areas sa ON u.id = sa.supplier_id
       WHERE u.role = 'supplier'
