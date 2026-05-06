@@ -197,6 +197,37 @@ class PhysicalBin {
 
     return code;
   }
+
+  static async findAssignedTypes(supplierId) {
+    const query = `
+      SELECT DISTINCT bt.* 
+      FROM bin_types bt
+      JOIN physical_bins pb ON bt.id = pb.bin_type_id
+      WHERE pb.supplier_id = $1 AND bt.is_active = true
+      ORDER BY bt.display_order ASC, bt.name ASC
+    `;
+    const result = await pool.query(query, [supplierId]);
+    return result.rows;
+  }
+
+  static async findAssignedSizes(supplierId, binTypeId = null) {
+    let query = `
+      SELECT DISTINCT bs.* 
+      FROM bin_sizes bs
+      JOIN physical_bins pb ON bs.id = pb.bin_size_id
+      WHERE pb.supplier_id = $1 AND bs.is_active = true
+    `;
+    const values = [supplierId];
+
+    if (binTypeId) {
+      query += ` AND pb.bin_type_id = $2`;
+      values.push(binTypeId);
+    }
+
+    query += ` ORDER BY bs.display_order ASC, bs.size ASC`;
+    const result = await pool.query(query, values);
+    return result.rows;
+  }
 }
 
 module.exports = PhysicalBin;

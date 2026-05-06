@@ -3,6 +3,7 @@ const BinSize = require('../models/BinSize');
 const ServiceArea = require('../models/ServiceArea');
 const ServiceAreaBin = require('../models/ServiceAreaBin');
 const pool = require('../config/database');
+const PhysicalBin = require('../models/PhysicalBin');
 
 // Bin Types
 const getAllBinTypes = async (req, res) => {
@@ -385,6 +386,47 @@ const getSupplierBinPrices = async (req, res) => {
   }
 };
 
+const getSupplierAssignedTypes = async (req, res) => {
+  try {
+    const supplierId = req.user.id;
+    const binTypes = await PhysicalBin.findAssignedTypes(supplierId);
+    res.json({
+      success: true,
+      data: { binTypes },
+    });
+  } catch (error) {
+    console.error('Get supplier assigned types error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching assigned bin types',
+      error: error.message,
+    });
+  }
+};
+
+const getSupplierAssignedSizes = async (req, res) => {
+  try {
+    const supplierId = req.user.id;
+    const { binTypeId } = req.query;
+
+    const binSizes = await PhysicalBin.findAssignedSizes(
+      supplierId, 
+      binTypeId ? parseInt(binTypeId) : null
+    );
+    res.json({
+      success: true,
+      data: { binSizes },
+    });
+  } catch (error) {
+    console.error('Get supplier assigned sizes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching assigned bin sizes',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllBinTypes,
   getBinTypeById,
@@ -398,4 +440,6 @@ module.exports = {
   deleteBinSize,
   getBinPricesByLocation,
   getSupplierBinPrices,
+  getSupplierAssignedTypes,
+  getSupplierAssignedSizes,
 };

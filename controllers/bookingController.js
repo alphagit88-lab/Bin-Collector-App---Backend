@@ -382,6 +382,17 @@ const getRequestById = async (req, res) => {
     const orderItems = await OrderItem.findByServiceRequest(id);
     request.orderItems = orderItems;
 
+    // Parse additional_images if it is a string
+    if (request.additional_images && typeof request.additional_images === 'string') {
+      try {
+        request.additional_images = JSON.parse(request.additional_images);
+      } catch (e) {
+        request.additional_images = [];
+      }
+    } else if (!request.additional_images) {
+      request.additional_images = [];
+    }
+
     res.json({
       success: true,
       data: { request },
@@ -1189,6 +1200,10 @@ const createSupplierBooking = async (req, res) => {
       payment_method = 'cash' // Default to cash for supplier-created orders
     } = req.body;
 
+    const fileUrls = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
+    const main_attachment_url = fileUrls.length > 0 ? fileUrls[0] : null;
+    const additional_images = fileUrls.length > 1 ? fileUrls.slice(1) : [];
+
     if (!customer_name || !customer_phone) {
       return res.status(400).json({
         success: false,
@@ -1260,6 +1275,7 @@ const createSupplierBooking = async (req, res) => {
       location,
       start_date,
       end_date,
+      attachment_url: main_attachment_url,
       estimated_price: totalEstimatedPrice,
       payment_method,
       contact_number: customer_phone,
@@ -1267,7 +1283,20 @@ const createSupplierBooking = async (req, res) => {
       latitude,
       longitude,
       project_id: project_id || null,
-      status: 'confirmed', // Auto-confirmed as it's created by supplier
+      additional_images,
+    });
+
+    // Update status to confirmed and assign supplier since it's created by supplier
+    await ServiceRequest.update(serviceRequest.id, {
+      status: 'confirmed',
+      supplier_id: supplierId
+    });
+
+    // Log status history
+    await StatusHistory.create({
+      service_request_id: serviceRequest.id,
+      status: 'confirmed',
+      changed_by: supplierId
     });
 
     // 5. Create Order Items
@@ -1289,7 +1318,17 @@ const createSupplierBooking = async (req, res) => {
       payment_status: 'pending'
     });
 
-    // Log status history
+    // Log status history (Automatic flow)
+    await StatusHistory.create({
+      service_request_id: serviceRequest.id,
+      status: 'pending',
+      changed_by: supplierId
+    });
+    await StatusHistory.create({
+      service_request_id: serviceRequest.id,
+      status: 'accepted',
+      changed_by: supplierId
+    });
     await StatusHistory.create({
       service_request_id: serviceRequest.id,
       status: 'confirmed',

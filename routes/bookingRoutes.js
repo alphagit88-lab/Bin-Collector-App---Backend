@@ -29,7 +29,7 @@ router.put('/:id/ready-to-pickup', authenticate, markReadyToPickup);
 // Supplier routes
 router.get('/supplier/requests', authenticate, getSupplierRequests);
 router.get('/supplier/pending', authenticate, getPendingRequests);
-router.post('/supplier/create', authenticate, createSupplierBooking); // New route
+router.post('/supplier/create', authenticate, upload.array('attachments', 10), createSupplierBooking); // New route
 router.post('/:id/accept', authenticate, acceptRequest);
 router.put('/:id/status', authenticate, upload.single('delivery_photo'), updateRequestStatus);
 router.get('/:id/order-items', authenticate, getOrderItems);
