@@ -20,7 +20,7 @@ exports.getAllBins = async (req, res) => {
     if (req.query.bin_size_id) filters.bin_size_id = parseInt(req.query.bin_size_id);
 
     const bins = await PhysicalBin.findAll(filters);
-    res.json({ success: true, bins });
+    res.json({ success: true, bins, data: { bins } });
   } catch (error) {
     console.error('Error fetching bins:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch bins', error: error.message });
@@ -34,7 +34,7 @@ exports.getBinById = async (req, res) => {
     if (!bin) {
       return res.status(404).json({ success: false, message: 'Bin not found' });
     }
-    res.json({ success: true, bin });
+    res.json({ success: true, bin, data: { bin } });
   } catch (error) {
     console.error('Error fetching bin:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch bin', error: error.message });
@@ -48,7 +48,7 @@ exports.getBinByCode = async (req, res) => {
     if (!bin) {
       return res.status(404).json({ success: false, message: 'Bin not found' });
     }
-    res.json({ success: true, bin });
+    res.json({ success: true, bin, data: { bin } });
   } catch (error) {
     console.error('Error fetching bin:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch bin', error: error.message });
@@ -141,7 +141,7 @@ exports.createBin = async (req, res) => {
     await t.query('COMMIT');
 
     const fullBin = await PhysicalBin.findById(bin.id);
-    res.status(201).json({ success: true, bin: fullBin });
+    res.status(201).json({ success: true, bin: fullBin, data: { bin: fullBin } });
   } catch (error) {
     await t.query('ROLLBACK');
     console.error('Error creating bin:', error);
@@ -234,7 +234,7 @@ exports.updateBin = async (req, res) => {
     await t.query('COMMIT');
 
     const fullBin = await PhysicalBin.findById(binId);
-    res.json({ success: true, bin: fullBin });
+    res.json({ success: true, bin: fullBin, data: { bin: fullBin } });
   } catch (error) {
     await t.query('ROLLBACK');
     console.error('Error updating bin:', error);
@@ -289,7 +289,7 @@ exports.assignBinToSupplier = async (req, res) => {
     }
 
     const fullBin = await PhysicalBin.findById(binId);
-    res.json({ success: true, bin: fullBin });
+    res.json({ success: true, bin: fullBin, data: { bin: fullBin } });
   } catch (error) {
     console.error('Error assigning bin:', error);
     res.status(500).json({ success: false, message: 'Failed to assign bin', error: error.message });
