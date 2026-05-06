@@ -20,7 +20,7 @@ exports.getAllBins = async (req, res) => {
     if (req.query.bin_size_id) filters.bin_size_id = parseInt(req.query.bin_size_id);
 
     const bins = await PhysicalBin.findAll(filters);
-    res.json({ success: true, bins, data: { bins } });
+    res.json({ success: true, bins });
   } catch (error) {
     console.error('Error fetching bins:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch bins', error: error.message });
@@ -110,8 +110,8 @@ exports.createBin = async (req, res) => {
               AND (bin_size_id = $3 OR (bin_size_id IS NULL AND $3 IS NULL))
           `;
           const checkResult = await t.query(checkQuery, [
-            area.service_area_id, 
-            bin_type_id, 
+            area.service_area_id,
+            bin_type_id,
             bin_size_id || null
           ]);
 
@@ -205,8 +205,8 @@ exports.updateBin = async (req, res) => {
               AND (bin_size_id = $3 OR (bin_size_id IS NULL AND $3 IS NULL))
           `;
           const checkResult = await t.query(checkQuery, [
-            area.service_area_id, 
-            bin_type_id, 
+            area.service_area_id,
+            bin_type_id,
             bin_size_id || null
           ]);
 
