@@ -8,6 +8,7 @@ const OrderItem = require('../models/OrderItem');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const Bill = require('../models/Bill');
 const Notification = require('../models/Notification');
+const StatusHistory = require('../models/StatusHistory');
 const fs = require('fs');
 const path = require('path');
 
@@ -446,6 +447,13 @@ const acceptRequest = async (req, res) => {
       payment_status: nextPaymentStatus,
     });
 
+    // Log status history
+    await StatusHistory.create({
+      service_request_id: id,
+      status: nextStatus,
+      changed_by: supplierId
+    });
+
     // Create a bill for the booking
     const billId = `BILL-${Date.now().toString(36).toUpperCase()}`;
     await Bill.create({
@@ -716,6 +724,13 @@ const updateRequestStatus = async (req, res) => {
       await ServiceRequest.update(id, {
         status: 'on_delivery',
       });
+
+      // Log status history
+      await StatusHistory.create({
+        service_request_id: id,
+        status: 'on_delivery',
+        changed_by: req.user.id
+      });
     } else {
       // Update request status
       const updateData = { status };
@@ -726,6 +741,13 @@ const updateRequestStatus = async (req, res) => {
       }
 
       await ServiceRequest.update(id, updateData);
+
+      // Log status history
+      await StatusHistory.create({
+        service_request_id: id,
+        status: status,
+        changed_by: req.user.id
+      });
     }
 
     const updatedRequest = await ServiceRequest.findById(id);
@@ -1017,6 +1039,13 @@ const markReadyToPickup = async (req, res) => {
     // Update request status
     await ServiceRequest.update(id, { status: 'ready_to_pickup' });
 
+    // Log status history
+    await StatusHistory.create({
+      service_request_id: id,
+      status: 'ready_to_pickup',
+      changed_by: customerId
+    });
+
     // Update order items and bins
     const orderItems = await OrderItem.findByServiceRequest(id);
     for (const orderItem of orderItems) {
@@ -1141,6 +1170,163 @@ const getRepeatOrderData = async (req, res) => {
   }
 };
 
+
+// Supplier creates order and assigns a customer
+const createSupplierBooking = async (req, res) => {
+  try {
+    let {
+      customer_name,
+      customer_phone,
+      service_category,
+      bins,
+      location,
+      start_date,
+      end_date,
+      instructions,
+      latitude,
+      longitude,
+      project_id,
+      payment_method = 'cash' // Default to cash for supplier-created orders
+    } = req.body;
+
+    if (!customer_name || !customer_phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer name and phone are required',
+      });
+    }
+
+    const supplierId = req.user.id;
+
+    // 1. Handle Customer (Find or Create)
+    let customer = await User.findByPhone(customer_phone);
+    let isNewCustomer = false;
+
+    if (!customer) {
+      const randomPassword = Math.random().toString(36).slice(-8);
+      customer = await User.create({
+        name: customer_name,
+        phone: customer_phone,
+        role: 'customer',
+        password: randomPassword,
+      });
+      isNewCustomer = true;
+      console.log(`Created new customer: ${customer_name} (${customer_phone}) with random password.`);
+      // In a real app, you'd send an SMS with the password here.
+    }
+
+    // 2. Prepare Order Items
+    if (typeof bins === 'string') {
+      try { bins = JSON.parse(bins); } catch (e) {}
+    }
+
+    let orderItems = [];
+    if (bins && Array.isArray(bins) && bins.length > 0) {
+      orderItems = bins.map(bin => ({
+        bin_type_id: parseInt(bin.bin_type_id),
+        bin_size_id: bin.bin_size_id ? parseInt(bin.bin_size_id) : null,
+        quantity: parseInt(bin.quantity) || 1,
+      }));
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one bin is required',
+      });
+    }
+
+    // 3. Calculate Pricing (Simplified for supplier-created orders, we can use their own pricing)
+    // For now, let's just use a placeholder or expect it in the body if we want it flexible.
+    // In this specific flow, let's assume the supplier sets the price or it's fetched from their configuration.
+    // To keep it robust, let's try to find their configured price for these bins in this area.
+    
+    let totalEstimatedPrice = 0;
+    // We'll need a way to get the price. Let's assume for now the supplier provides it or we default to 0.
+    // The user didn't specify pricing logic for this specific flow, but usually, it's either their standard rate or a custom one.
+    // Let's assume they might pass a custom price per item.
+    
+    for (const item of bins) {
+      totalEstimatedPrice += (parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1);
+    }
+
+    const requestId = `REQ-S-${Date.now().toString(36).toUpperCase()}`;
+
+    // 4. Create Service Request
+    const serviceRequest = await ServiceRequest.create({
+      request_id: requestId,
+      customer_id: customer.id,
+      service_category,
+      bin_type_id: orderItems[0].bin_type_id,
+      bin_size_id: orderItems[0].bin_size_id,
+      location,
+      start_date,
+      end_date,
+      estimated_price: totalEstimatedPrice,
+      payment_method,
+      contact_number: customer_phone,
+      instructions,
+      latitude,
+      longitude,
+      project_id: project_id || null,
+      status: 'confirmed', // Auto-confirmed as it's created by supplier
+    });
+
+    // 5. Create Order Items
+    for (const item of orderItems) {
+      for (let i = 0; i < item.quantity; i++) {
+        await OrderItem.create({
+          service_request_id: serviceRequest.id,
+          bin_type_id: item.bin_type_id,
+          bin_size_id: item.bin_size_id,
+          status: 'pending',
+        });
+      }
+    }
+
+    // 6. Assign Supplier (Auto-assign)
+    await ServiceRequest.update(serviceRequest.id, {
+      supplier_id: supplierId,
+      status: 'confirmed',
+      payment_status: 'pending'
+    });
+
+    // Log status history
+    await StatusHistory.create({
+      service_request_id: serviceRequest.id,
+      status: 'confirmed',
+      changed_by: supplierId
+    });
+
+    // 7. Create Bill
+    const billId = `BILL-S-${Date.now().toString(36).toUpperCase()}`;
+    await Bill.create({
+      bill_id: billId,
+      service_request_id: serviceRequest.id,
+      customer_id: customer.id,
+      supplier_id: supplierId,
+      total_amount: totalEstimatedPrice,
+      payment_method,
+      payment_status: 'unpaid'
+    });
+
+    res.status(201).json({
+      success: true,
+      message: isNewCustomer ? 'Order created. New customer account created.' : 'Order created successfully',
+      data: {
+        request: await ServiceRequest.findById(serviceRequest.id),
+        isNewCustomer
+      }
+    });
+
+  } catch (error) {
+    console.error('Supplier create order error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating order',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createServiceRequest,
   getMyRequests,
@@ -1153,4 +1339,6 @@ module.exports = {
   markReadyToPickup,
   getAllServiceRequests,
   getRepeatOrderData,
+  createSupplierBooking, // Export the new function
 };
+

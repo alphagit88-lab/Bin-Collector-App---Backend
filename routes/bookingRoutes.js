@@ -12,6 +12,7 @@ const {
   markReadyToPickup,
   getAllServiceRequests,
   getRepeatOrderData,
+  createSupplierBooking,
 } = require('../controllers/bookingController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
@@ -28,6 +29,7 @@ router.put('/:id/ready-to-pickup', authenticate, markReadyToPickup);
 // Supplier routes
 router.get('/supplier/requests', authenticate, getSupplierRequests);
 router.get('/supplier/pending', authenticate, getPendingRequests);
+router.post('/supplier/create', authenticate, createSupplierBooking); // New route
 router.post('/:id/accept', authenticate, acceptRequest);
 router.put('/:id/status', authenticate, upload.single('delivery_photo'), updateRequestStatus);
 router.get('/:id/order-items', authenticate, getOrderItems);

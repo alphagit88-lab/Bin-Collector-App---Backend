@@ -4,6 +4,7 @@ const Transaction = require('../models/Transaction');
 const SupplierWallet = require('../models/SupplierWallet');
 const SystemSetting = require('../models/SystemSetting');
 const Bill = require('../models/Bill');
+const StatusHistory = require('../models/StatusHistory');
 
 const processSuccessfulPayment = async ({ requestId, paymentIntent, eventId, app }) => {
   const request = await ServiceRequest.findById(requestId);
@@ -52,6 +53,15 @@ const processSuccessfulPayment = async ({ requestId, paymentIntent, eventId, app
     nextUpdates.status = 'confirmed';
   }
   await ServiceRequest.update(requestId, nextUpdates);
+
+  // Log status history if status changed
+  if (nextUpdates.status) {
+    await StatusHistory.create({
+      service_request_id: requestId,
+      status: nextUpdates.status,
+      changed_by: null // System/Stripe change
+    });
+  }
 
   // Update associated bill
   const bill = await Bill.findByServiceRequestId(requestId);

@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const StatusHistory = require('./StatusHistory');
 
 class ServiceRequest {
   static async create(data) {
@@ -91,7 +92,18 @@ class ServiceRequest {
     ];
 
     const result = await pool.query(query, values);
-    return result.rows[0];
+    const request = result.rows[0];
+
+    // Log initial 'pending' status
+    if (request) {
+      await StatusHistory.create({
+        service_request_id: request.id,
+        status: 'pending',
+        changed_by: customer_id
+      });
+    }
+
+    return request;
   }
 
   static async findById(id) {
@@ -133,7 +145,13 @@ class ServiceRequest {
       WHERE sr.id = $1
     `;
     const result = await pool.query(query, [id]);
-    return result.rows[0];
+    const request = result.rows[0];
+
+    if (request) {
+      request.status_history = await StatusHistory.findByServiceRequest(id);
+    }
+
+    return request;
   }
 
   static async findByRequestId(requestId) {
@@ -173,7 +191,13 @@ class ServiceRequest {
       WHERE sr.request_id = $1
     `;
     const result = await pool.query(query, [requestId]);
-    return result.rows[0];
+    const request = result.rows[0];
+
+    if (request) {
+      request.status_history = await StatusHistory.findByServiceRequest(request.id);
+    }
+
+    return request;
   }
 
   static async findByCustomer(customerId, filters = {}) {
@@ -229,6 +253,7 @@ class ServiceRequest {
         WHERE oi.service_request_id = $1
       `, [requests[i].id]);
       requests[i].items = items.rows;
+      requests[i].status_history = await StatusHistory.findByServiceRequest(requests[i].id);
     }
 
     return requests;
@@ -294,6 +319,7 @@ class ServiceRequest {
         WHERE oi.service_request_id = $1
       `, [requests[i].id]);
       requests[i].items = items.rows;
+      requests[i].status_history = await StatusHistory.findByServiceRequest(requests[i].id);
     }
 
     return requests;
@@ -362,6 +388,7 @@ class ServiceRequest {
         WHERE oi.service_request_id = $1
       `, [requests[i].id]);
       requests[i].items = items.rows;
+      requests[i].status_history = await StatusHistory.findByServiceRequest(requests[i].id);
     }
 
     return requests;
