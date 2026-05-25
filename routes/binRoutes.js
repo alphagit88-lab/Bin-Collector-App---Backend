@@ -15,6 +15,8 @@ const {
   getSupplierBinPrices,
   getSupplierAssignedTypes,
   getSupplierAssignedSizes,
+  getAvailableBinTypesForLocation,
+  getAvailableBinSizesForLocationAndType,
 } = require('../controllers/binController');
 const {
   getAllBins,
@@ -33,6 +35,8 @@ router.get('/types/:id', getBinTypeById);
 router.get('/sizes', getAllBinSizes);
 router.get('/sizes/:id', getBinSizeById);
 router.get('/prices', getBinPricesByLocation);
+router.get('/available-types', getAvailableBinTypesForLocation);
+router.get('/available-sizes', getAvailableBinSizesForLocationAndType);
 router.get('/supplier-prices', authenticate, getSupplierBinPrices);
 router.get('/supplier/types', authenticate, getSupplierAssignedTypes);
 router.get('/supplier/sizes', authenticate, getSupplierAssignedSizes);

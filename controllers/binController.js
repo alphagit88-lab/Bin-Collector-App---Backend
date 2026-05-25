@@ -427,6 +427,124 @@ const getSupplierAssignedSizes = async (req, res) => {
   }
 };
 
+const getAvailableBinTypesForLocation = async (req, res) => {
+  try {
+    const { lat, lon } = req.query;
+
+    if (!lat || !lon) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required',
+      });
+    }
+
+    // 1. Find service areas covering this location
+    const serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
+
+    if (serviceAreas.length === 0) {
+      return res.json({
+        success: true,
+        data: { binTypes: [] },
+        message: 'No suppliers found in this area'
+      });
+    }
+
+    // 2. Get service area IDs
+    const areaIds = serviceAreas.map(sa => sa.id);
+
+    // 3. Get distinct bin types with approved admin prices AND available bins from same supplier
+    const query = `
+      SELECT DISTINCT bt.*
+      FROM bin_types bt
+      INNER JOIN service_area_bins sab ON bt.id = sab.bin_type_id
+      INNER JOIN service_areas sa ON sab.service_area_id = sa.id
+      INNER JOIN physical_bins pb 
+        ON bt.id = pb.bin_type_id 
+        AND pb.supplier_id = sa.supplier_id
+        AND (sab.bin_size_id IS NULL OR pb.bin_size_id = sab.bin_size_id)
+      WHERE sab.service_area_id = ANY($1)
+        AND sab.is_active = true
+        AND sab.admin_final_price IS NOT NULL
+        AND pb.status = 'available'
+        AND bt.is_active = true
+      ORDER BY bt.display_order ASC, bt.name ASC
+    `;
+    const result = await pool.query(query, [areaIds]);
+
+    res.json({
+      success: true,
+      data: { binTypes: result.rows },
+    });
+  } catch (error) {
+    console.error('Get available bin types for location error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching available bin types',
+      error: error.message,
+    });
+  }
+};
+
+const getAvailableBinSizesForLocationAndType = async (req, res) => {
+  try {
+    const { lat, lon, binTypeId } = req.query;
+
+    if (!lat || !lon || !binTypeId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude, longitude, and binTypeId are required',
+      });
+    }
+
+    // 1. Find service areas covering this location
+    const serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
+
+    if (serviceAreas.length === 0) {
+      return res.json({
+        success: true,
+        data: { binSizes: [] },
+        message: 'No suppliers found in this area'
+      });
+    }
+
+    // 2. Get service area IDs
+    const areaIds = serviceAreas.map(sa => sa.id);
+
+    // 3. Get distinct bin sizes with approved admin prices AND available bins from same supplier
+    const query = `
+      SELECT DISTINCT bs.*
+      FROM bin_sizes bs
+      INNER JOIN service_area_bins sab ON bs.id = sab.bin_size_id
+      INNER JOIN service_areas sa ON sab.service_area_id = sa.id
+      INNER JOIN physical_bins pb 
+        ON bs.id = pb.bin_size_id 
+        AND pb.bin_type_id = $2
+        AND pb.supplier_id = sa.supplier_id
+      WHERE sab.service_area_id = ANY($1)
+        AND sab.bin_type_id = $2
+        AND bs.bin_type_id = $2
+        AND sab.is_active = true
+        AND sab.admin_final_price IS NOT NULL
+        AND pb.status = 'available'
+        AND bs.is_active = true
+      ORDER BY bs.display_order ASC, bs.size ASC
+    `;
+    const result = await pool.query(query, [areaIds, parseInt(binTypeId)]);
+
+    res.json({
+      success: true,
+      data: { binSizes: result.rows },
+    });
+  } catch (error) {
+    console.error('Get available bin sizes for location and type error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching available bin sizes',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllBinTypes,
   getBinTypeById,
@@ -442,4 +560,6 @@ module.exports = {
   getSupplierBinPrices,
   getSupplierAssignedTypes,
   getSupplierAssignedSizes,
+  getAvailableBinTypesForLocation,
+  getAvailableBinSizesForLocationAndType,
 };

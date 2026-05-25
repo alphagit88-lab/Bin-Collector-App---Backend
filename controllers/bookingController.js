@@ -125,38 +125,37 @@ const createServiceRequest = async (req, res) => {
         finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
       }
 
-      // Duration-based additional charges
-      const startDate = new Date(start_date);
-      const endDate = new Date(end_date);
-      const diffTime = Math.abs(endDate - startDate);
-      const durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
-
+      // Duration-based additional charges (only for residential, skip for commercial)
+      let durationDays = 1;
       let additionalCharge = 0;
       let exceededDays = 0;
       let limitDays = 0;
+      let basePrice = finalEstimatedPrice;
 
-      if (service_category === 'commercial' || service_category === 'residential') {
-        const limitKey = service_category === 'commercial' ? 'commercial_duration_limit' : 'residential_duration_limit';
-        const limitSetting = await SystemSetting.findByKey(limitKey);
-        const rateSetting = await SystemSetting.findByKey('additional_day_charge');
+      if (service_category !== 'commercial' && start_date && end_date) {
+        const startDate = new Date(start_date);
+        const endDate = new Date(end_date);
+        const diffTime = Math.abs(endDate - startDate);
+        durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-        if (!limitSetting || !rateSetting) {
-          throw new Error(`Pricing configuration missing. Please contact administrator.`);
+        if (service_category === 'residential') {
+          const limitSetting = await SystemSetting.findByKey('residential_duration_limit');
+          const rateSetting = await SystemSetting.findByKey('additional_day_charge');
+
+          if (limitSetting && rateSetting) {
+            limitDays = parseInt(limitSetting.value);
+            const dailyRate = parseFloat(rateSetting.value);
+
+            if (durationDays > limitDays) {
+              exceededDays = durationDays - limitDays;
+              additionalCharge = exceededDays * dailyRate;
+              finalEstimatedPrice += additionalCharge;
+            }
+          }
         }
 
-        limitDays = parseInt(limitSetting.value);
-        const dailyRate = parseFloat(rateSetting.value);
-
-        if (durationDays > limitDays) {
-          exceededDays = durationDays - limitDays;
-          additionalCharge = exceededDays * dailyRate;
-
-          // Add to final estimated price
-          finalEstimatedPrice += additionalCharge;
-        }
+        basePrice = finalEstimatedPrice - additionalCharge;
       }
-
-      const basePrice = finalEstimatedPrice - additionalCharge;
 
       req.calculatedPricing = {
         base_price: basePrice,
@@ -274,7 +273,7 @@ const createServiceRequest = async (req, res) => {
       },
     });
   } catch (error) {
-    cleanupFile();
+    cleanupFiles();
     console.error('Create service request error:', error);
     res.status(500).json({
       success: false,
