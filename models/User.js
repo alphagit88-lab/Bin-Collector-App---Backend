@@ -31,6 +31,7 @@ class User {
         push_token AS "pushToken",
         profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
+        delete_request AS "deleteRequest",
         created_at,
         updated_at
       FROM users
@@ -53,6 +54,7 @@ class User {
         push_token AS "pushToken",
         profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
+        delete_request AS "deleteRequest",
         created_at, 
         updated_at 
       FROM users 
@@ -74,6 +76,7 @@ class User {
         supplier_id AS "supplierId",
         profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
+        delete_request AS "deleteRequest",
         created_at, 
         updated_at 
       FROM users 
@@ -161,6 +164,12 @@ class User {
 
   static async delete(id) {
     const query = 'DELETE FROM users WHERE id = $1 RETURNING id';
+    const result = await pool.query(query, [id]);
+    return result.rows[0];
+  }
+
+  static async requestDelete(id) {
+    const query = 'UPDATE users SET delete_request = TRUE, updated_at = NOW() WHERE id = $1 RETURNING id, delete_request AS "deleteRequest"';
     const result = await pool.query(query, [id]);
     return result.rows[0];
   }

@@ -320,9 +320,26 @@ const getSupplierRequests = async (req, res) => {
       requests = await ServiceRequest.findBySupplier(userId, { status });
     }
 
+    // Parse additional_images for each request
+    const parsedRequests = requests.map(request => {
+      let parsedRequest = { ...request };
+      
+      if (parsedRequest.additional_images && typeof parsedRequest.additional_images === 'string') {
+        try {
+          parsedRequest.additional_images = JSON.parse(parsedRequest.additional_images);
+        } catch (e) {
+          parsedRequest.additional_images = [];
+        }
+      } else if (!parsedRequest.additional_images) {
+        parsedRequest.additional_images = [];
+      }
+      
+      return parsedRequest;
+    });
+
     res.json({
       success: true,
-      data: { requests },
+      data: { requests: parsedRequests },
     });
   } catch (error) {
     console.error('Get jobs error:', error);
@@ -340,14 +357,23 @@ const getPendingRequests = async (req, res) => {
     const supplierId = req.user.id;
     const requests = await ServiceRequest.findPendingForSuppliers(supplierId);
 
-    // Fetch order items for each request
+    // Fetch order items for each request and parse additional_images
     const requestsWithItems = await Promise.all(
       requests.map(async (request) => {
         const orderItems = await OrderItem.findByServiceRequest(request.id);
-        return {
-          ...request,
-          orderItems,
-        };
+        let parsedRequest = { ...request, orderItems };
+        
+        if (parsedRequest.additional_images && typeof parsedRequest.additional_images === 'string') {
+          try {
+            parsedRequest.additional_images = JSON.parse(parsedRequest.additional_images);
+          } catch (e) {
+            parsedRequest.additional_images = [];
+          }
+        } else if (!parsedRequest.additional_images) {
+          parsedRequest.additional_images = [];
+        }
+        
+        return parsedRequest;
       })
     );
 
@@ -1127,9 +1153,24 @@ const getAllServiceRequests = async (req, res) => {
       limit: limit ? parseInt(limit) : undefined,
     });
 
+    // Parse additional_images for each request
+    const parsedRequests = requests.map(request => {
+      let parsedRequest = { ...request };
+      if (parsedRequest.additional_images && typeof parsedRequest.additional_images === 'string') {
+        try {
+          parsedRequest.additional_images = JSON.parse(parsedRequest.additional_images);
+        } catch (e) {
+          parsedRequest.additional_images = [];
+        }
+      } else if (!parsedRequest.additional_images) {
+        parsedRequest.additional_images = [];
+      }
+      return parsedRequest;
+    });
+
     res.json({
       success: true,
-      data: { requests },
+      data: { requests: parsedRequests },
     });
   } catch (error) {
     console.error('Get all service requests error:', error);

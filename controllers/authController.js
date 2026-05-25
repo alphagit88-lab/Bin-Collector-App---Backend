@@ -273,6 +273,33 @@ const updatePushToken = async (req, res) => {
   }
 };
 
+const requestDelete = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.requestDelete(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Delete request submitted successfully',
+      data: { user },
+    });
+  } catch (error) {
+    console.error('Request delete error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error submitting delete request',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   signup,
   login,
@@ -281,4 +308,5 @@ module.exports = {
   updateProfilePhoto,
   changePassword,
   updatePushToken,
+  requestDelete,
 };
