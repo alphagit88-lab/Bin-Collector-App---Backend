@@ -529,6 +529,11 @@ class ServiceRequest {
       values.push(filters.driver_id);
     }
 
+    if (filters.service_category) {
+      query += ` AND sr.service_category = $${paramCount++}`;
+      values.push(filters.service_category);
+    }
+
     query += ` ORDER BY sr.created_at DESC`;
 
     if (filters.limit) {
