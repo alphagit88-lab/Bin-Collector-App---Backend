@@ -21,6 +21,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const projectRoutes = require('./routes/projectRoutes');
+const provinceGSTRoutes = require('./routes/provinceGSTRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -89,6 +90,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/billing', require('./routes/billingRoutes'));
 app.use('/api/projects', projectRoutes);
+app.use('/api/province-gst', provinceGSTRoutes);
 
 // 404 handler
 app.use((req, res) => {

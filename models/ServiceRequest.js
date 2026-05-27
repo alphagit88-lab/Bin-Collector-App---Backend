@@ -14,7 +14,7 @@ class ServiceRequest {
       end_date,
       attachment_url,
       estimated_price,
-      payment_method = 'online',
+      payment_method,
       contact_number,
       contact_email,
       instructions,
@@ -28,6 +28,8 @@ class ServiceRequest {
       duration_days,
       exceeded_days,
       project_id,
+      gst_rate,
+      gst_amount,
     } = data;
 
     const query = `
@@ -57,10 +59,12 @@ class ServiceRequest {
         duration_days,
         exceeded_days,
         project_id,
+        gst_rate,
+        gst_amount,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW())
       RETURNING *
     `;
 
@@ -85,10 +89,12 @@ class ServiceRequest {
       po_number || null,
       additional_images ? JSON.stringify(additional_images) : '[]',
       base_price || null,
-      additional_duration_charge || 0,
+      additional_duration_charge !== null && additional_duration_charge !== undefined ? additional_duration_charge : null,
       duration_days || null,
-      exceeded_days || 0,
+      exceeded_days !== null && exceeded_days !== undefined ? exceeded_days : null,
       project_id || null,
+      gst_rate || 0.00,
+      gst_amount || 0.00,
     ];
 
     const result = await pool.query(query, values);
@@ -412,7 +418,9 @@ class ServiceRequest {
       'base_price',
       'additional_duration_charge',
       'duration_days',
-      'exceeded_days'
+      'exceeded_days',
+      'gst_rate',
+      'gst_amount'
     ];
     const updateFields = [];
     const values = [];

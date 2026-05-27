@@ -3,14 +3,204 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const SupplierWallet = require('../models/SupplierWallet');
 const SystemSetting = require('../models/SystemSetting');
+const ProvinceGST = require('../models/ProvinceGST');
 const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const Bill = require('../models/Bill');
 const Notification = require('../models/Notification');
 const StatusHistory = require('../models/StatusHistory');
+const BinSize = require('../models/BinSize');
+const BinType = require('../models/BinType');
 const fs = require('fs');
 const path = require('path');
+
+// Calculate price and GST endpoint
+const calculatePrice = async (req, res) => {
+  try {
+    let {
+      service_category,
+      bins,
+      location,
+      start_date,
+      end_date,
+      latitude,
+      longitude,
+    } = req.body;
+
+    // Handle stringified JSON
+    if (typeof bins === 'string') {
+      try {
+        bins = JSON.parse(bins);
+      } catch (e) {
+        console.error('Error parsing bins JSON:', e);
+      }
+    }
+
+    if (service_category === 'service') {
+      return res.status(400).json({
+        success: false,
+        message: 'Price calculation for services not supported yet'
+      });
+    }
+
+    if (!bins || !Array.isArray(bins) || bins.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bins are required'
+      });
+    }
+
+    // Use same logic as createServiceRequest to calculate price
+    let orderItems = [];
+    if (bins && Array.isArray(bins) && bins.length > 0) {
+      orderItems = bins.map(bin => ({
+        bin_type_id: parseInt(bin.bin_type_id),
+        bin_size_id: bin.bin_size_id ? parseInt(bin.bin_size_id) : null,
+        quantity: parseInt(bin.quantity) || 1,
+      }));
+    }
+
+    let finalEstimatedPrice = 0;
+    let basePrice = null;
+    let durationDays = null;
+    let additionalCharge = null;
+    let exceededDays = null;
+
+    // Find qualified suppliers to get total_price (same as createServiceRequest)
+    const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
+
+    if (qualifiedSuppliers.length > 0) {
+      finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
+
+      // Calculate duration charges if dates are provided
+      if (start_date && end_date) {
+        durationDays = 1;
+        additionalCharge = 0;
+        exceededDays = 0;
+        basePrice = finalEstimatedPrice;
+
+        const startDate = new Date(start_date);
+        const endDate = new Date(end_date);
+        const diffTime = Math.abs(endDate - startDate);
+        durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+
+        if (service_category === 'residential') {
+          const limitSetting = await SystemSetting.findByKey('residential_duration_limit');
+          const rateSetting = await SystemSetting.findByKey('additional_day_charge');
+
+          if (limitSetting && rateSetting) {
+            const limitDays = parseInt(limitSetting.value);
+            const dailyRate = parseFloat(rateSetting.value);
+
+            if (durationDays > limitDays) {
+              exceededDays = durationDays - limitDays;
+              additionalCharge = exceededDays * dailyRate;
+              finalEstimatedPrice += additionalCharge;
+            }
+          }
+        }
+
+        basePrice = finalEstimatedPrice - additionalCharge;
+      }
+    }
+
+    // Calculate GST - same logic as createServiceRequest
+    let gstRate = 0.00;
+    let gstAmount = 0.00;
+    let provinceCode = null;
+
+    const provinceMap = {
+      'AB': 'AB', 'Alberta': 'AB',
+      'BC': 'BC', 'British Columbia': 'BC',
+      'MB': 'MB', 'Manitoba': 'MB',
+      'NB': 'NB', 'New Brunswick': 'NB',
+      'NL': 'NL', 'Newfoundland and Labrador': 'NL',
+      'NS': 'NS', 'Nova Scotia': 'NS',
+      'ON': 'ON', 'Ontario': 'ON',
+      'PE': 'PE', 'Prince Edward Island': 'PE',
+      'QC': 'QC', 'Quebec': 'QC',
+      'SK': 'SK', 'Saskatchewan': 'SK',
+      'NT': 'NT', 'Northwest Territories': 'NT',
+      'NU': 'NU', 'Nunavut': 'NU',
+      'YT': 'YT', 'Yukon': 'YT'
+    };
+
+    if (location) {
+      const locationLower = location.toLowerCase();
+      for (const [name, code] of Object.entries(provinceMap)) {
+        if (locationLower.includes(name.toLowerCase())) {
+          provinceCode = code;
+          break;
+        }
+      }
+    }
+
+    if (!provinceCode && latitude && longitude) {
+      try {
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+          { headers: { 'User-Agent': 'BinDropApp/1.0' } }
+        );
+        const geoData = await geoResponse.json();
+        if (geoData && geoData.address) {
+          const addr = geoData.address;
+          const provinceField = addr.state || addr.province || addr.region;
+          if (provinceField) {
+            for (const [name, code] of Object.entries(provinceMap)) {
+              if (provinceField.toLowerCase().includes(name.toLowerCase())) {
+                provinceCode = code;
+                break;
+              }
+            }
+          }
+        }
+      } catch (geoError) {
+        console.error('Reverse geocoding for province failed:', geoError);
+      }
+    }
+
+    if (provinceCode) {
+      const provinceGST = await ProvinceGST.findByProvinceCode(provinceCode);
+      if (provinceGST) {
+        gstRate = provinceGST.gst_rate;
+      }
+    }
+
+    if (!gstRate || gstRate === 0) {
+      const defaultGSTSetting = await SystemSetting.findByKey('default_gst_rate');
+      if (defaultGSTSetting) {
+        gstRate = parseFloat(defaultGSTSetting.value);
+      }
+    }
+
+    const subtotal = finalEstimatedPrice;
+    gstAmount = subtotal * (gstRate / 100);
+    const totalWithGST = subtotal + gstAmount;
+
+    res.json({
+      success: true,
+      data: {
+        base_price: basePrice !== null ? basePrice : finalEstimatedPrice,
+        additional_duration_charge: additionalCharge !== null ? additionalCharge : 0,
+        duration_days: durationDays,
+        exceeded_days: exceededDays,
+        subtotal,
+        gst_rate: gstRate,
+        gst_amount: gstAmount,
+        total: totalWithGST,
+        province_code: provinceCode
+      }
+    });
+  } catch (error) {
+    console.error('Calculate price error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error calculating price',
+      error: error.message
+    });
+  }
+};
 
 // Create service request (customer orders bins - supports multiple bins)
 const createServiceRequest = async (req, res) => {
@@ -125,25 +315,30 @@ const createServiceRequest = async (req, res) => {
         finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
       }
 
-      // Duration-based additional charges (only for residential, skip for commercial)
-      let durationDays = 1;
-      let additionalCharge = 0;
-      let exceededDays = 0;
-      let limitDays = 0;
-      let basePrice = finalEstimatedPrice;
+      // Calculate duration if dates are provided (even for commercial)
+      let durationDays = null;
+      let additionalCharge = null;
+      let exceededDays = null;
+      let basePrice = null;
 
-      if (service_category !== 'commercial' && start_date && end_date) {
+      if (start_date && end_date) {
+        durationDays = 1;
+        additionalCharge = 0;
+        exceededDays = 0;
+        basePrice = finalEstimatedPrice;
+
         const startDate = new Date(start_date);
         const endDate = new Date(end_date);
         const diffTime = Math.abs(endDate - startDate);
         durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
+        // Duration-based additional charges (only for residential, skip for commercial)
         if (service_category === 'residential') {
           const limitSetting = await SystemSetting.findByKey('residential_duration_limit');
           const rateSetting = await SystemSetting.findByKey('additional_day_charge');
 
           if (limitSetting && rateSetting) {
-            limitDays = parseInt(limitSetting.value);
+            const limitDays = parseInt(limitSetting.value);
             const dailyRate = parseFloat(rateSetting.value);
 
             if (durationDays > limitDays) {
@@ -157,13 +352,100 @@ const createServiceRequest = async (req, res) => {
         basePrice = finalEstimatedPrice - additionalCharge;
       }
 
-      req.calculatedPricing = {
-        base_price: basePrice,
-        additional_duration_charge: additionalCharge,
-        duration_days: durationDays,
-        exceeded_days: exceededDays
-      };
+      req.calculatedPricing = {};
+      if (basePrice !== null) {
+        req.calculatedPricing.base_price = basePrice;
+      }
+      if (additionalCharge !== null) {
+        req.calculatedPricing.additional_duration_charge = additionalCharge;
+      }
+      if (durationDays !== null) {
+        req.calculatedPricing.duration_days = durationDays;
+      }
+      if (exceededDays !== null) {
+        req.calculatedPricing.exceeded_days = exceededDays;
+      }
     }
+
+    // Calculate GST
+    let gstRate = 0.00;
+    let gstAmount = 0.00;
+
+    // Try to get province code from address or reverse geocoding
+    let provinceCode = null;
+
+    // Common Canadian province abbreviations in addresses
+    const provinceMap = {
+      'AB': 'AB', 'Alberta': 'AB',
+      'BC': 'BC', 'British Columbia': 'BC',
+      'MB': 'MB', 'Manitoba': 'MB',
+      'NB': 'NB', 'New Brunswick': 'NB',
+      'NL': 'NL', 'Newfoundland and Labrador': 'NL',
+      'NS': 'NS', 'Nova Scotia': 'NS',
+      'ON': 'ON', 'Ontario': 'ON',
+      'PE': 'PE', 'Prince Edward Island': 'PE',
+      'QC': 'QC', 'Quebec': 'QC',
+      'SK': 'SK', 'Saskatchewan': 'SK',
+      'NT': 'NT', 'Northwest Territories': 'NT',
+      'NU': 'NU', 'Nunavut': 'NU',
+      'YT': 'YT', 'Yukon': 'YT'
+    };
+
+    // Check location string for province
+    const locationLower = location.toLowerCase();
+    for (const [name, code] of Object.entries(provinceMap)) {
+      if (locationLower.includes(name.toLowerCase())) {
+        provinceCode = code;
+        break;
+      }
+    }
+
+    // If no province found in string, try reverse geocoding if we have coordinates
+    if (!provinceCode && latitude && longitude) {
+      try {
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+          { headers: { 'User-Agent': 'BinDropApp/1.0' } }
+        );
+        const geoData = await geoResponse.json();
+        if (geoData && geoData.address) {
+          const addr = geoData.address;
+          // Check for province in reverse geocode results
+          const provinceField = addr.state || addr.province || addr.region;
+          if (provinceField) {
+            for (const [name, code] of Object.entries(provinceMap)) {
+              if (provinceField.toLowerCase().includes(name.toLowerCase())) {
+                provinceCode = code;
+                break;
+              }
+            }
+          }
+        }
+      } catch (geoError) {
+        console.error('Reverse geocoding for province failed:', geoError);
+      }
+    }
+
+    // Get GST rate
+    if (provinceCode) {
+      const provinceGST = await ProvinceGST.findByProvinceCode(provinceCode);
+      if (provinceGST) {
+        gstRate = provinceGST.gst_rate;
+      }
+    }
+
+    // If no province-specific GST, use default
+    if (!gstRate || gstRate === 0) {
+      const defaultGSTSetting = await SystemSetting.findByKey('default_gst_rate');
+      if (defaultGSTSetting) {
+        gstRate = parseFloat(defaultGSTSetting.value);
+      }
+    }
+
+    // Calculate GST amount and total price including GST
+    const subtotal = finalEstimatedPrice;
+    gstAmount = subtotal * (gstRate / 100);
+    finalEstimatedPrice = subtotal + gstAmount;
 
     const firstBin = orderItems.length > 0 ? orderItems[0] : null;
 
@@ -174,11 +456,11 @@ const createServiceRequest = async (req, res) => {
       bin_type_id: firstBin ? parseInt(firstBin.bin_type_id) : null,
       bin_size_id: firstBin && firstBin.bin_size_id ? parseInt(firstBin.bin_size_id) : null,
       location,
-      start_date,
-      end_date,
+      start_date: start_date || null,
+      end_date: end_date || null,
       attachment_url: main_attachment_url,
       estimated_price: finalEstimatedPrice,
-      payment_method,
+      payment_method: service_category === 'commercial' ? null : payment_method,
       contact_number,
       contact_email,
       instructions,
@@ -192,6 +474,8 @@ const createServiceRequest = async (req, res) => {
       additional_duration_charge: req.calculatedPricing?.additional_duration_charge,
       duration_days: req.calculatedPricing?.duration_days,
       exceeded_days: req.calculatedPricing?.exceeded_days,
+      gst_rate: gstRate,
+      gst_amount: gstAmount,
     });
 
     // Create order items for bins if any
@@ -469,12 +753,13 @@ const acceptRequest = async (req, res) => {
         message: 'Valid price not found for this request. Please contact support.',
       });
     }
-    const paymentMethod = request.payment_method || 'online';
+    const paymentMethod = request.payment_method || (request.service_category === 'commercial' ? null : 'online');
 
     // After supplier accepts:
     // - cash: booking is confirmed immediately (payment collected later)
     // - online: booking waits for customer payment, then becomes confirmed on Stripe success
-    const nextStatus = paymentMethod === 'online' ? 'awaiting_payment' : 'confirmed';
+    // - commercial: no payment method, confirm immediately
+    const nextStatus = !paymentMethod || paymentMethod === 'cash' ? 'confirmed' : 'awaiting_payment';
     const nextPaymentStatus = 'pending';
 
     await ServiceRequest.update(id, {
@@ -490,17 +775,19 @@ const acceptRequest = async (req, res) => {
       changed_by: supplierId
     });
 
-    // Create a bill for the booking
-    const billId = `BILL-${Date.now().toString(36).toUpperCase()}`;
-    await Bill.create({
-      bill_id: billId,
-      service_request_id: id,
-      customer_id: request.customer_id,
-      supplier_id: supplierId,
-      total_amount: totalAmount,
-      payment_method: paymentMethod,
-      payment_status: 'unpaid'
-    });
+    // Create a bill for the booking only if payment method is provided
+    if (paymentMethod) {
+      const billId = `BILL-${Date.now().toString(36).toUpperCase()}`;
+      await Bill.create({
+        bill_id: billId,
+        service_request_id: id,
+        customer_id: request.customer_id,
+        supplier_id: supplierId,
+        total_amount: totalAmount,
+        payment_method: paymentMethod,
+        payment_status: 'unpaid'
+      });
+    }
 
     const updatedRequest = await ServiceRequest.findById(id);
 
@@ -1407,6 +1694,7 @@ const createSupplierBooking = async (req, res) => {
 };
 
 module.exports = {
+  calculatePrice,
   createServiceRequest,
   getMyRequests,
   getSupplierRequests,

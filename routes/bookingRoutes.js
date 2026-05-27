@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+  calculatePrice,
   createServiceRequest,
   getMyRequests,
   getSupplierRequests,
@@ -17,6 +18,9 @@ const {
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
 const upload = require('../utils/upload');
+
+// Public price calculation endpoint (no auth needed)
+router.post('/calculate-price', calculatePrice);
 
 // Customer routes
 router.post('/', authenticate, upload.array('attachments', 10), createServiceRequest);
