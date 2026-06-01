@@ -48,11 +48,15 @@ class BinSize {
     return result.rows[0];
   }
 
-  static async update(id, { size, capacity_cubic_meters, is_active, display_order }) {
+  static async update(id, { bin_type_id, size, capacity_cubic_meters, is_active, display_order }) {
     const updates = [];
     const values = [];
     let paramCount = 1;
 
+    if (bin_type_id !== undefined) {
+      updates.push(`bin_type_id = $${paramCount++}`);
+      values.push(bin_type_id);
+    }
     if (size !== undefined) {
       updates.push(`size = $${paramCount++}`);
       values.push(size);

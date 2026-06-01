@@ -227,9 +227,9 @@ const createBinSize = async (req, res) => {
 const updateBinSize = async (req, res) => {
   try {
     const { id } = req.params;
-    const { size, capacity_cubic_meters, is_active, display_order } = req.body;
+    const { bin_type_id, size, capacity_cubic_meters, is_active, display_order } = req.body;
 
-    const binSize = await BinSize.update(id, { size, capacity_cubic_meters, is_active, display_order });
+    const binSize = await BinSize.update(id, { bin_type_id, size, capacity_cubic_meters, is_active, display_order });
 
     if (!binSize) {
       return res.status(404).json({
