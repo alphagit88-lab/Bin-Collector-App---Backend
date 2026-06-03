@@ -1427,11 +1427,12 @@ const markReadyToPickup = async (req, res) => {
   }
 };
 
-// Customer: Cancel request
+// Customer/Admin: Cancel request
 const cancelRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const customerId = req.user.id;
+    const userId = req.user.id;
+    const isAdmin = req.user.role === 'admin';
 
     const request = await ServiceRequest.findById(id);
     if (!request) {
@@ -1441,23 +1442,23 @@ const cancelRequest = async (req, res) => {
       });
     }
 
-    if (request.customer_id !== customerId) {
+    if (!isAdmin && request.customer_id !== userId) {
       return res.status(403).json({
         success: false,
         message: 'You can only cancel your own requests',
       });
     }
 
-    // Check if order is already completed
-    if (request.status === 'completed') {
+    // Check if order is already completed (only for non-admins)
+    if (!isAdmin && request.status === 'completed') {
       return res.status(400).json({
         success: false,
         message: 'Completed orders cannot be cancelled',
       });
     }
 
-    // Check if order is confirmed - if yes, we don't allow direct cancel
-    if (request.status === 'confirmed') {
+    // Check if order is confirmed - only restrict non-admins
+    if (!isAdmin && request.status === 'confirmed') {
       return res.status(400).json({
         success: false,
         message: 'Please contact customer service to cancel this order',
@@ -1472,7 +1473,7 @@ const cancelRequest = async (req, res) => {
     await StatusHistory.create({
       service_request_id: id,
       status: 'cancelled',
-      changed_by: customerId
+      changed_by: userId
     });
 
     // Update order items and bins
@@ -1493,7 +1494,7 @@ const cancelRequest = async (req, res) => {
     // Notify supplier if assigned
     const io = req.app.get('io');
     if (io && request.supplier_id) {
-      const msg = `Booking #${updatedRequest.request_id} has been cancelled by the customer`;
+      const msg = `Booking #${updatedRequest.request_id} has been cancelled by ${isAdmin ? 'admin' : 'customer'}`;
       io.to(`supplier_${request.supplier_id}`).emit('status_update', {
         booking_id: updatedRequest.id,
         status: updatedRequest.status,
