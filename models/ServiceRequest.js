@@ -237,6 +237,8 @@ class ServiceRequest {
     if (filters.status) {
       query += ` AND sr.status = $${paramCount++}`;
       values.push(filters.status);
+    } else {
+      query += ` AND sr.status != 'cancelled'`;
     }
 
     query += ` ORDER BY sr.created_at DESC`;
@@ -303,6 +305,8 @@ class ServiceRequest {
     if (filters.status) {
       query += ` AND sr.status = $${paramCount++}`;
       values.push(filters.status);
+    } else {
+      query += ` AND sr.status != 'cancelled'`;
     }
 
     query += ` ORDER BY sr.created_at DESC`;
@@ -512,6 +516,8 @@ class ServiceRequest {
     if (filters.status) {
       query += ` AND sr.status = $${paramCount++}`;
       values.push(filters.status);
+    } else {
+      query += ` AND sr.status != 'cancelled'`;
     }
 
     if (filters.customer_id) {

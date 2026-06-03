@@ -1427,6 +1427,105 @@ const markReadyToPickup = async (req, res) => {
   }
 };
 
+// Customer: Cancel request
+const cancelRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customerId = req.user.id;
+
+    const request = await ServiceRequest.findById(id);
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found',
+      });
+    }
+
+    if (request.customer_id !== customerId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only cancel your own requests',
+      });
+    }
+
+    // Check if order is already completed
+    if (request.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Completed orders cannot be cancelled',
+      });
+    }
+
+    // Check if order is confirmed - if yes, we don't allow direct cancel
+    if (request.status === 'confirmed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Please contact customer service to cancel this order',
+        requireContact: true
+      });
+    }
+
+    // Update request status to cancelled
+    await ServiceRequest.update(id, { status: 'cancelled' });
+
+    // Log status history
+    await StatusHistory.create({
+      service_request_id: id,
+      status: 'cancelled',
+      changed_by: customerId
+    });
+
+    // Update order items and bins
+    const orderItems = await OrderItem.findByServiceRequest(id);
+    for (const orderItem of orderItems) {
+      await OrderItem.update(orderItem.id, { status: 'pending' });
+      if (orderItem.physical_bin_id) {
+        await PhysicalBin.update(orderItem.physical_bin_id, { 
+          status: 'available',
+          current_customer_id: null,
+          current_service_request_id: null
+        });
+      }
+    }
+
+    const updatedRequest = await ServiceRequest.findById(id);
+
+    // Notify supplier if assigned
+    const io = req.app.get('io');
+    if (io && request.supplier_id) {
+      const msg = `Booking #${updatedRequest.request_id} has been cancelled by the customer`;
+      io.to(`supplier_${request.supplier_id}`).emit('status_update', {
+        booking_id: updatedRequest.id,
+        status: updatedRequest.status,
+        message: msg,
+        request: updatedRequest,
+      });
+
+      // Save notification to database
+      Notification.create({
+        userId: request.supplier_id,
+        title: 'Booking Cancelled',
+        message: msg,
+        type: 'status_update',
+        relatedId: updatedRequest.id
+      }).catch(err => console.error('DB Notification error:', err));
+    }
+
+    res.json({
+      success: true,
+      message: 'Order cancelled successfully',
+      data: { request: updatedRequest },
+    });
+  } catch (error) {
+    console.error('Cancel request error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error cancelling order',
+      error: error.message,
+    });
+  }
+};
+
 // Admin: Get all service requests
 const getAllServiceRequests = async (req, res) => {
   try {
@@ -1707,5 +1806,6 @@ module.exports = {
   getAllServiceRequests,
   getRepeatOrderData,
   createSupplierBooking, // Export the new function
+  cancelRequest, // Export cancel request
 };
 

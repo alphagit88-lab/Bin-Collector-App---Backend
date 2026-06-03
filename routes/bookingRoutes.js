@@ -14,6 +14,7 @@ const {
   getAllServiceRequests,
   getRepeatOrderData,
   createSupplierBooking,
+  cancelRequest,
 } = require('../controllers/bookingController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
@@ -29,6 +30,7 @@ router.get('/:id', authenticate, getRequestById);
 router.get('/:id/order-items', authenticate, getOrderItems);
 router.get('/:id/repeat', authenticate, getRepeatOrderData);
 router.put('/:id/ready-to-pickup', authenticate, markReadyToPickup);
+router.delete('/:id', authenticate, cancelRequest); // Cancel request route
 
 // Supplier routes
 router.get('/supplier/requests', authenticate, getSupplierRequests);
