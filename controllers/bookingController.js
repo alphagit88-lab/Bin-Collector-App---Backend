@@ -1433,6 +1433,7 @@ const cancelRequest = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     const isAdmin = req.user.role === 'admin';
+    const isSupplier = req.user.role === 'supplier';
 
     const request = await ServiceRequest.findById(id);
     if (!request) {
@@ -1442,7 +1443,10 @@ const cancelRequest = async (req, res) => {
       });
     }
 
-    if (!isAdmin && request.customer_id !== userId) {
+    // Check if user is authorized to cancel
+    if (!isAdmin && 
+        request.customer_id !== userId && 
+        request.supplier_id !== userId) {
       return res.status(403).json({
         success: false,
         message: 'You can only cancel your own requests',
@@ -1457,8 +1461,8 @@ const cancelRequest = async (req, res) => {
       });
     }
 
-    // Check if order is confirmed - only restrict non-admins
-    if (!isAdmin && request.status === 'confirmed') {
+    // Check if order is confirmed - only restrict customers (suppliers can cancel any non-completed order)
+    if (!isAdmin && !isSupplier && request.status === 'confirmed') {
       return res.status(400).json({
         success: false,
         message: 'Please contact customer service to cancel this order',
@@ -1494,7 +1498,10 @@ const cancelRequest = async (req, res) => {
     // Notify supplier if assigned
     const io = req.app.get('io');
     if (io && request.supplier_id) {
-      const msg = `Booking #${updatedRequest.request_id} has been cancelled by ${isAdmin ? 'admin' : 'customer'}`;
+      let cancelActor = 'customer';
+      if (isAdmin) cancelActor = 'admin';
+      else if (isSupplier) cancelActor = 'supplier';
+      const msg = `Booking #${updatedRequest.request_id} has been cancelled by ${cancelActor}`;
       io.to(`supplier_${request.supplier_id}`).emit('status_update', {
         booking_id: updatedRequest.id,
         status: updatedRequest.status,
