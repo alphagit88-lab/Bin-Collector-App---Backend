@@ -19,6 +19,6 @@ CREATE TABLE IF NOT EXISTS customer_invoices (
 );
 
 -- Create index for faster queries
-CREATE INDEX idx_customer_invoices_customer_id ON customer_invoices(customer_id);
-CREATE INDEX idx_customer_invoices_month_year ON customer_invoices(month, year);
-CREATE INDEX idx_customer_invoices_service_category ON customer_invoices(service_category);
+CREATE INDEX IF NOT EXISTS idx_customer_invoices_customer_id ON customer_invoices(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_invoices_month_year ON customer_invoices(month, year);
+CREATE INDEX IF NOT EXISTS idx_customer_invoices_service_category ON customer_invoices(service_category);
