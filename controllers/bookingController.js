@@ -7,6 +7,7 @@ const ProvinceGST = require('../models/ProvinceGST');
 const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
 const { sendPushNotifications } = require('../utils/pushNotification');
+const { generateRequestId } = require('../utils/requestId');
 const Bill = require('../models/Bill');
 const Notification = require('../models/Notification');
 const StatusHistory = require('../models/StatusHistory');
@@ -258,7 +259,7 @@ const createServiceRequest = async (req, res) => {
     const main_attachment_url = fileUrls.length > 0 ? fileUrls[0] : null;
     const additional_images = fileUrls.length > 1 ? fileUrls.slice(1) : [];
     const customerId = req.user.id;
-    const requestId = `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 7).toUpperCase()}`;
+    const requestId = await generateRequestId();
 
     let qualifiedSuppliers = [];
     let orderItems = [];
@@ -1697,7 +1698,7 @@ const createSupplierBooking = async (req, res) => {
       totalEstimatedPrice += (parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1);
     }
 
-    const requestId = `REQ-S-${Date.now().toString(36).toUpperCase()}`;
+    const requestId = await generateRequestId();
 
     // 4. Create Service Request
     const serviceRequest = await ServiceRequest.create({

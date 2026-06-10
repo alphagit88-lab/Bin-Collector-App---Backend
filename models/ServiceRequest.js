@@ -160,6 +160,14 @@ class ServiceRequest {
     return request;
   }
 
+  static async requestIdExists(requestId) {
+    const result = await pool.query(
+      'SELECT 1 FROM service_requests WHERE request_id = $1 LIMIT 1',
+      [requestId]
+    );
+    return result.rows.length > 0;
+  }
+
   static async findByRequestId(requestId) {
     const query = `
       SELECT 
