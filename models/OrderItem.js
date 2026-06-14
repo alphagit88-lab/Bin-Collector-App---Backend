@@ -74,7 +74,7 @@ class OrderItem {
   }
 
   static async update(id, updates) {
-    const allowedUpdates = ['physical_bin_id', 'status'];
+    const allowedUpdates = ['physical_bin_id', 'status', 'delivery_photo_url'];
     const updateFields = [];
     const values = [];
     let paramCount = 1;

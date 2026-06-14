@@ -15,6 +15,7 @@ const {
   getRepeatOrderData,
   createSupplierBooking,
   cancelRequest,
+  updateOrderItemStatus,
 } = require('../controllers/bookingController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
@@ -38,6 +39,7 @@ router.get('/supplier/pending', authenticate, getPendingRequests);
 router.post('/supplier/create', authenticate, upload.array('attachments', 10), createSupplierBooking); // New route
 router.post('/:id/accept', authenticate, acceptRequest);
 router.put('/:id/status', authenticate, upload.single('delivery_photo'), updateRequestStatus);
+router.put('/:bookingId/order-items/:itemId/status', authenticate, upload.single('delivery_photo'), updateOrderItemStatus);
 router.get('/:id/order-items', authenticate, getOrderItems);
 
 // Admin routes

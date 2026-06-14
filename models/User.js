@@ -298,7 +298,7 @@ class User {
           const p2 = paramCount++;
           const p3 = paramCount++;
           values.push(r.bin_type_id, r.bin_size_id, r.quantity);
-          return `SELECT $${p1}::integer as bin_type_id, $${p2}::integer as bin_size_id, $${p3}::integer as required_quantity ${i === 0 ? '' : 'UNION ALL '}`;
+          return `SELECT $${p1}::integer as bin_type_id, $${p2}::integer as bin_size_id, $${p3}::integer as required_quantity${i < binRequirements.length - 1 ? '\n        UNION ALL' : ''}`;
         }).join('\n        ')}
       ),
       suppliers_with_all_pricing AS (

@@ -1174,13 +1174,23 @@ const updateRequestStatus = async (req, res) => {
       // Update all order items and their associated bins
       for (const orderItem of orderItems) {
         if (orderItemStatus) {
-          await OrderItem.update(orderItem.id, { status: orderItemStatus });
+          // For cash_collected: don't regress items that are already delivered or beyond
+          const alreadyAdvanced = ['delivered', 'ready_to_pickup', 'picked_up', 'completed'].includes(orderItem.status);
+          if (orderItemStatus === 'cash_collected' && alreadyAdvanced) {
+            // Skip — item is already further along, leave it as-is
+          } else {
+            await OrderItem.update(orderItem.id, { status: orderItemStatus });
+          }
         }
 
         if (orderItem.physical_bin_id) {
           const binUpdates = {};
           if (binStatus) {
-            binUpdates.status = binStatus;
+            // For cash_collected: don't change bin status if item is already delivered+
+            const alreadyAdvancedBin = ['delivered', 'ready_to_pickup', 'picked_up', 'completed'].includes(orderItem.status);
+            if (!(orderItemStatus === 'cash_collected' && alreadyAdvancedBin)) {
+              binUpdates.status = binStatus;
+            }
           }
           if (clearBinAssignment) {
             binUpdates.current_customer_id = null;
@@ -1801,6 +1811,351 @@ const createSupplierBooking = async (req, res) => {
   }
 };
 
+// Update status of an individual bin (order item) separately
+const updateOrderItemStatus = async (req, res) => {
+  try {
+    const { bookingId, itemId } = req.params;
+    const { status } = req.body;
+    const PhysicalBin = require('../models/PhysicalBin');
+    const OrderItem = require('../models/OrderItem');
+    const ServiceRequest = require('../models/ServiceRequest');
+    const StatusHistory = require('../models/StatusHistory');
+    const Notification = require('../models/Notification');
+    const { sendPushNotifications } = require('../utils/pushNotification');
+
+    const cleanupFile = () => {
+      if (req.file) {
+        const filePath = path.join(__dirname, '../uploads', req.file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+    };
+
+    const request = await ServiceRequest.findById(parseInt(bookingId));
+    if (!request) {
+      cleanupFile();
+      return res.status(404).json({
+        success: false,
+        message: 'Service request not found',
+      });
+    }
+
+    // Validate user can only update their own requests
+    if (req.user.role === 'supplier' && request.supplier_id !== req.user.id) {
+      cleanupFile();
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own requests',
+      });
+    }
+
+    if (req.user.role === 'driver' && request.driver_id !== req.user.id) {
+      cleanupFile();
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update jobs assigned to you',
+      });
+    }
+
+    if (req.user.role === 'customer') {
+      if (request.customer_id !== req.user.id) {
+        cleanupFile();
+        return res.status(403).json({
+          success: false,
+          message: 'You can only update your own bookings',
+        });
+      }
+      if (status !== 'ready_to_pickup') {
+        cleanupFile();
+        return res.status(400).json({
+          success: false,
+          message: 'Customers can only mark bins as ready to pickup',
+        });
+      }
+    }
+
+    const orderItem = await OrderItem.findById(parseInt(itemId));
+    if (!orderItem || orderItem.service_request_id !== request.id) {
+      cleanupFile();
+      return res.status(404).json({
+        success: false,
+        message: 'Order item not found for this booking',
+      });
+    }
+
+    if (req.user.role === 'customer' && orderItem.status !== 'delivered') {
+      cleanupFile();
+      return res.status(400).json({
+        success: false,
+        message: 'Bin must be delivered before marking as ready for pickup',
+      });
+    }
+
+    // Determine target item status and physical bin status
+    let orderItemStatus = status;
+    let binStatus = null;
+    let clearBinAssignment = false;
+
+    // Map order item status and associated bin status
+    switch (status) {
+      case 'on_delivery':
+      case 'loaded':
+        orderItemStatus = 'loaded';
+        binStatus = 'loaded';
+        break;
+      case 'delivered':
+        orderItemStatus = 'delivered';
+        binStatus = 'delivered';
+        break;
+      case 'ready_to_pickup':
+        orderItemStatus = 'ready_to_pickup';
+        binStatus = 'ready_to_pickup';
+        break;
+      case 'pickup':
+      case 'picked_up':
+        orderItemStatus = 'picked_up';
+        binStatus = 'picked_up';
+        break;
+      case 'completed':
+        orderItemStatus = 'completed';
+        binStatus = 'available';
+        clearBinAssignment = true;
+        break;
+      case 'cancelled':
+        orderItemStatus = 'pending';
+        binStatus = 'available';
+        clearBinAssignment = true;
+        break;
+    }
+
+    let physicalBinId = orderItem.physical_bin_id;
+
+    if (orderItemStatus === 'loaded') {
+      const { bin_code } = req.body;
+      if (!physicalBinId && !bin_code) {
+        cleanupFile();
+        return res.status(400).json({
+          success: false,
+          message: 'Bin code is required to start delivery (load bin)',
+        });
+      }
+
+      if (bin_code) {
+        // Find the bin by code
+        const bin = await PhysicalBin.findByCode(bin_code);
+        if (!bin) {
+          cleanupFile();
+          return res.status(404).json({
+            success: false,
+            message: `Bin with code ${bin_code} not found`,
+          });
+        }
+
+        if (bin.supplier_id !== request.supplier_id) {
+          cleanupFile();
+          return res.status(403).json({
+            success: false,
+            message: `Bin ${bin_code} does not belong to you`,
+          });
+        }
+
+        if (bin.status !== 'available' && bin.id !== orderItem.physical_bin_id) {
+          cleanupFile();
+          return res.status(400).json({
+            success: false,
+            message: `Bin ${bin_code} is not available`,
+          });
+        }
+
+        // Verify bin matches order item requirements (Type and Size)
+        const typeMatch = bin.bin_type_id === orderItem.bin_type_id;
+        const binSizeId = bin.bin_size_id === null ? null : parseInt(bin.bin_size_id);
+        const orderItemSizeId = orderItem.bin_size_id === null ? null : parseInt(orderItem.bin_size_id);
+        const sizeMatch = binSizeId === orderItemSizeId;
+
+        if (!typeMatch || !sizeMatch) {
+          cleanupFile();
+          return res.status(400).json({
+            success: false,
+            message: `Bin ${bin_code} does not match order item requirements`,
+          });
+        }
+
+        // Check if bin is already assigned to another active order item
+        const pool = require('../config/database');
+        const alreadyAssignedQuery = `
+          SELECT id, service_request_id
+          FROM order_items
+          WHERE physical_bin_id = $1
+            AND status NOT IN ('completed', 'cancelled')
+            AND id != $2
+        `;
+        const alreadyAssigned = await pool.query(alreadyAssignedQuery, [bin.id, orderItem.id]);
+        if (alreadyAssigned.rows.length > 0) {
+          cleanupFile();
+          return res.status(400).json({
+            success: false,
+            message: `Bin ${bin_code} is already assigned to another active order`,
+          });
+        }
+
+        physicalBinId = bin.id;
+      }
+    }
+
+    const updateData = { status: orderItemStatus };
+    if (physicalBinId) {
+      updateData.physical_bin_id = physicalBinId;
+    }
+
+    // If delivery photo is uploaded and status is delivered
+    if (orderItemStatus === 'delivered' && req.file) {
+      updateData.delivery_photo_url = `/uploads/${req.file.filename}`;
+    }
+
+    // Update order item status
+    await OrderItem.update(orderItem.id, updateData);
+
+    // Update associated physical bin status
+    if (physicalBinId) {
+      const binUpdates = {};
+      if (binStatus) {
+        binUpdates.status = binStatus;
+      }
+      if (orderItemStatus === 'loaded') {
+        binUpdates.current_customer_id = request.customer_id;
+        binUpdates.current_service_request_id = request.id;
+      }
+      if (clearBinAssignment) {
+        binUpdates.current_customer_id = null;
+        binUpdates.current_service_request_id = null;
+      }
+      if (Object.keys(binUpdates).length > 0) {
+        await PhysicalBin.update(physicalBinId, binUpdates);
+      }
+    }
+
+    // Fetch all items under the booking to check rollup status
+    const allItems = await OrderItem.findByServiceRequest(request.id);
+    
+    // Rollup Logic: Determine aggregate order status
+    let newBookingStatus = request.status;
+
+    if (allItems.length > 0) {
+      const statuses = allItems.map(item => item.status);
+
+      // Treat cash_collected as equivalent to loaded for rollup purposes (still in transit)
+      const allDelivered = statuses.every(s => ['delivered', 'ready_to_pickup', 'picked_up', 'completed'].includes(s));
+      const allLoaded = statuses.every(s => ['loaded', 'cash_collected', 'delivered', 'ready_to_pickup', 'picked_up', 'completed'].includes(s));
+      const allReady = statuses.every(s => ['ready_to_pickup', 'picked_up', 'completed'].includes(s));
+      const allPickedUp = statuses.every(s => ['picked_up', 'completed'].includes(s));
+      const allCompleted = statuses.every(s => s === 'completed');
+
+      const anyLoaded = statuses.some(s => ['loaded', 'cash_collected', 'delivered', 'ready_to_pickup', 'picked_up', 'completed'].includes(s));
+
+      if (allCompleted) {
+        newBookingStatus = 'completed';
+      } else if (allPickedUp) {
+        newBookingStatus = 'pickup';
+      } else if (allReady) {
+        newBookingStatus = 'ready_to_pickup';
+      } else if (allDelivered) {
+        // ALL bins are at delivered or beyond → order is delivered
+        if (request.payment_method === 'cash') {
+          // For cash orders, only transition to delivered if cash has been collected/paid
+          if (request.status === 'cash_collected' || request.payment_status === 'paid') {
+            newBookingStatus = 'delivered';
+          } else {
+            newBookingStatus = 'on_delivery';
+          }
+        } else {
+          newBookingStatus = 'delivered';
+        }
+      } else if (anyLoaded) {
+        // At least one bin is in progress, but NOT all delivered yet
+        // Preserve cash_collected if already set, otherwise keep on_delivery
+        if (request.status !== 'cash_collected') {
+          newBookingStatus = 'on_delivery';
+        }
+        // If already cash_collected, stay cash_collected
+      }
+    }
+
+    // Update parent order status if changed
+    if (newBookingStatus !== request.status) {
+      await ServiceRequest.update(request.id, { status: newBookingStatus });
+      await StatusHistory.create({
+        service_request_id: request.id,
+        status: newBookingStatus,
+        changed_by: req.user.id
+      });
+    }
+
+    const updatedRequest = await ServiceRequest.findById(request.id);
+    const updatedItem = await OrderItem.findById(orderItem.id);
+
+    // Notify customer using socket
+    const io = req.app.get('io');
+    if (io) {
+      const msg = `Booking #${updatedRequest.request_id} bin status updated: ${updatedItem.bin_type_name} is now ${updatedItem.status.replace(/_/g, ' ')}`;
+      
+      io.to(`user_${updatedRequest.customer_id}`).emit('status_update', {
+        booking_id: updatedRequest.id,
+        status: updatedRequest.status,
+        message: msg,
+        request: updatedRequest,
+        item: updatedItem
+      });
+
+      io.to(`customer_${updatedRequest.customer_id}`).emit('status_update', {
+        booking_id: updatedRequest.id,
+        status: updatedRequest.status,
+        message: msg,
+        request: updatedRequest,
+        item: updatedItem
+      });
+
+      Notification.create({
+        userId: updatedRequest.customer_id,
+        title: 'Bin Status Updated',
+        message: msg,
+        type: 'status_update',
+        relatedId: updatedRequest.id
+      }).catch(err => console.error('DB Notification error:', err));
+    }
+
+    // Send push notification
+    if (updatedRequest.customer_push_token) {
+      const title = 'Bin Status Updated';
+      const body = `Booking #${updatedRequest.request_id.slice(-5).toUpperCase()}: ${updatedItem.bin_type_name} bin is now ${updatedItem.status.replace(/_/g, ' ')}`;
+      sendPushNotifications(updatedRequest.customer_push_token, title, body, {
+        requestId: updatedRequest.id,
+        status: updatedRequest.status,
+        type: 'status_update'
+      }).catch(err => console.error('Push notification error:', err));
+    }
+
+    res.json({
+      success: true,
+      message: 'Bin status updated successfully',
+      data: {
+        item: updatedItem,
+        request: updatedRequest
+      }
+    });
+
+  } catch (error) {
+    cleanupFile();
+    console.error('Update order item status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating order item status',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   calculatePrice,
   createServiceRequest,
@@ -1814,7 +2169,8 @@ module.exports = {
   markReadyToPickup,
   getAllServiceRequests,
   getRepeatOrderData,
-  createSupplierBooking, // Export the new function
-  cancelRequest, // Export cancel request
+  createSupplierBooking,
+  cancelRequest,
+  updateOrderItemStatus,
 };
 
