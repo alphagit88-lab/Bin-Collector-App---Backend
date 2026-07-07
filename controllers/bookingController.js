@@ -1813,6 +1813,15 @@ const createSupplierBooking = async (req, res) => {
 
 // Update status of an individual bin (order item) separately
 const updateOrderItemStatus = async (req, res) => {
+  const cleanupFile = () => {
+    if (req.file) {
+      const filePath = path.join(__dirname, '../uploads', req.file.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  };
+
   try {
     const { bookingId, itemId } = req.params;
     const { status } = req.body;
@@ -1822,15 +1831,6 @@ const updateOrderItemStatus = async (req, res) => {
     const StatusHistory = require('../models/StatusHistory');
     const Notification = require('../models/Notification');
     const { sendPushNotifications } = require('../utils/pushNotification');
-
-    const cleanupFile = () => {
-      if (req.file) {
-        const filePath = path.join(__dirname, '../uploads', req.file.filename);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      }
-    };
 
     const request = await ServiceRequest.findById(parseInt(bookingId));
     if (!request) {
