@@ -35,6 +35,16 @@ class PhysicalBin {
     if (filters.status) {
       query += ` AND pb.status = $${paramCount++}`;
       values.push(filters.status);
+      // When fetching available bins, also exclude bins already assigned to active order items
+      if (filters.status === 'available') {
+        query += `
+          AND NOT EXISTS (
+            SELECT 1 FROM order_items oi
+            WHERE oi.physical_bin_id = pb.id
+              AND oi.status NOT IN ('completed', 'cancelled')
+          )
+        `;
+      }
     }
 
     if (filters.bin_code) {

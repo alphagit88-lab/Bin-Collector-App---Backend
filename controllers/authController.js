@@ -145,10 +145,32 @@ const getMe = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { name, email, phone } = req.body;
     const userId = req.user.id;
 
-    const user = await User.update(userId, { email });
+    // Validate phone uniqueness if provided
+    if (phone) {
+      const existingPhone = await User.findByPhone(phone);
+      if (existingPhone && existingPhone.id !== userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number is already in use by another account',
+        });
+      }
+    }
+
+    // Validate email uniqueness if provided
+    if (email) {
+      const existingEmail = await User.findByEmail(email);
+      if (existingEmail && existingEmail.id !== userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email address is already in use by another account',
+        });
+      }
+    }
+
+    const user = await User.update(userId, { name, email, phone });
 
     if (!user) {
       return res.status(404).json({

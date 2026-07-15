@@ -41,6 +41,30 @@ class User {
     return result.rows[0];
   }
 
+  static async findByEmail(email) {
+    const query = `
+      SELECT
+        id,
+        name,
+        phone,
+        email,
+        role,
+        supplier_type AS "supplierType",
+        supplier_id AS "supplierId",
+        password_hash,
+        push_token AS "pushToken",
+        profile_photo AS "profilePhoto",
+        can_view_billing AS "canViewBilling",
+        delete_request AS "deleteRequest",
+        created_at,
+        updated_at
+      FROM users
+      WHERE email = $1
+    `;
+    const result = await pool.query(query, [email]);
+    return result.rows[0];
+  }
+
   static async findById(id) {
     const query = `
       SELECT 
@@ -105,7 +129,7 @@ class User {
     return result.rows;
   }
 
-  static async update(id, { name, email, role, supplierType, supplierId, profilePhoto }) {
+  static async update(id, { name, email, phone, role, supplierType, supplierId, profilePhoto }) {
     const updates = [];
     const values = [];
     let paramCount = 1;
@@ -117,6 +141,10 @@ class User {
     if (email !== undefined) {
       updates.push(`email = $${paramCount++}`);
       values.push(email || null);
+    }
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramCount++}`);
+      values.push(phone);
     }
     if (role !== undefined) {
       updates.push(`role = $${paramCount++}`);

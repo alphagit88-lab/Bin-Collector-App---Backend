@@ -8,11 +8,18 @@ exports.getInvoices = async (req, res) => {
         const userId = req.user.id;
 
         const query = `
-            SELECT i.*, sr.request_id as service_request_number
-            FROM invoices i
-            JOIN service_requests sr ON i.request_id = sr.id
-            WHERE i.user_id = $1
-            ORDER BY i.created_at DESC
+            SELECT
+                b.id,
+                b.bill_id          AS invoice_number,
+                b.total_amount     AS amount,
+                b.payment_status   AS status,
+                b.payment_method,
+                b.bill_date        AS created_at,
+                sr.request_id      AS service_request_number
+            FROM bills b
+            JOIN service_requests sr ON b.service_request_id = sr.id
+            WHERE b.customer_id = $1
+            ORDER BY b.bill_date DESC
         `;
         const result = await pool.query(query, [userId]);
 
@@ -28,6 +35,7 @@ exports.getInvoices = async (req, res) => {
         });
     }
 };
+
 
 /**
  * Admin: Toggle billing visibility for a user
