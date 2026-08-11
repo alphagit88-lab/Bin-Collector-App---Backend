@@ -136,7 +136,7 @@ class ServiceAreaBin {
         if (!areaIds || areaIds.length === 0) return [];
         
         const query = `
-          SELECT 
+          SELECT DISTINCT ON (sab.bin_type_id, sab.bin_size_id)
             sab.*,
             bs.size as bin_size_name,
             bt.name as bin_type_name
@@ -146,6 +146,7 @@ class ServiceAreaBin {
           WHERE sab.service_area_id = ANY($1)
             AND sab.is_active = TRUE
             AND sab.admin_final_price IS NOT NULL
+          ORDER BY sab.bin_type_id, sab.bin_size_id, sab.admin_final_price ASC
         `;
         const result = await pool.query(query, [areaIds]);
         return result.rows;

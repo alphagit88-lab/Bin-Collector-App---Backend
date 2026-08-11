@@ -7,7 +7,9 @@ exports.getInvoices = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const query = `
+        const role = req.user.role;
+
+        let query = `
             SELECT
                 b.id,
                 b.bill_id          AS invoice_number,
@@ -18,9 +20,14 @@ exports.getInvoices = async (req, res) => {
                 sr.request_id      AS service_request_number
             FROM bills b
             JOIN service_requests sr ON b.service_request_id = sr.id
-            WHERE b.customer_id = $1
-            ORDER BY b.bill_date DESC
         `;
+
+        if (role === 'supplier') {
+            query += ` WHERE b.supplier_id = $1 ORDER BY b.bill_date DESC`;
+        } else {
+            query += ` WHERE b.customer_id = $1 ORDER BY b.bill_date DESC`;
+        }
+
         const result = await pool.query(query, [userId]);
 
         res.status(200).json({

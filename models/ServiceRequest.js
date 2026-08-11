@@ -6,6 +6,7 @@ class ServiceRequest {
     const {
       request_id,
       customer_id,
+      supplier_id,
       service_category,
       bin_type_id,
       bin_size_id,
@@ -36,6 +37,7 @@ class ServiceRequest {
       INSERT INTO service_requests (
         request_id,
         customer_id,
+        supplier_id,
         service_category,
         bin_type_id,
         bin_size_id,
@@ -64,13 +66,14 @@ class ServiceRequest {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending', $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
       RETURNING *
     `;
 
     const values = [
       request_id,
       customer_id,
+      supplier_id || null,
       service_category,
       bin_type_id || null,
       bin_size_id || null,
@@ -314,7 +317,7 @@ class ServiceRequest {
       query += ` AND sr.status = $${paramCount++}`;
       values.push(filters.status);
     } else {
-      query += ` AND sr.status != 'cancelled'`;
+      query += ` AND sr.status NOT IN ('cancelled', 'pending')`;
     }
 
     query += ` ORDER BY sr.created_at DESC`;
@@ -369,26 +372,33 @@ class ServiceRequest {
       LEFT JOIN users c ON sr.customer_id = c.id
       LEFT JOIN users d ON sr.driver_id = d.id
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
-      WHERE sr.status = 'pending' AND sr.supplier_id IS NULL
+      WHERE sr.status = 'pending'
     `;
 
     const values = [];
 
     if (supplierId) {
       values.push(supplierId);
-      // Filter by service area coverage
-      // Check if sr.location contains any of the supplier's service area cities (case-insensitive)
+      // Show orders explicitly assigned to this supplier OR open orders in their service area
       query += `
-        AND EXISTS (
-            SELECT 1 FROM service_areas sa
-            WHERE sa.supplier_id = $1
-            AND (
-                (sr.latitude IS NOT NULL AND sr.longitude IS NOT NULL AND sa.latitude IS NOT NULL AND sa.longitude IS NOT NULL 
-                 AND (6371 * acos(cos(radians(sr.latitude)) * cos(radians(sa.latitude)) * cos(radians(sa.longitude) - radians(sr.longitude)) + sin(radians(sr.latitude)) * sin(radians(sa.latitude)))) <= sa.area_radius_km)
-                OR ((sr.latitude IS NULL OR sr.longitude IS NULL OR sa.latitude IS NULL OR sa.longitude IS NULL) AND sr.location ILIKE '%' || sa.city || '%')
+        AND (
+          sr.supplier_id = $1 
+          OR (
+            sr.supplier_id IS NULL
+            AND EXISTS (
+                SELECT 1 FROM service_areas sa
+                WHERE sa.supplier_id = $1
+                AND (
+                    (sr.latitude IS NOT NULL AND sr.longitude IS NOT NULL AND sa.latitude IS NOT NULL AND sa.longitude IS NOT NULL 
+                     AND (6371 * acos(cos(radians(sr.latitude)) * cos(radians(sa.latitude)) * cos(radians(sa.longitude) - radians(sr.longitude)) + sin(radians(sr.latitude)) * sin(radians(sa.latitude)))) <= sa.area_radius_km)
+                    OR ((sr.latitude IS NULL OR sr.longitude IS NULL OR sa.latitude IS NULL OR sa.longitude IS NULL) AND sr.location ILIKE '%' || sa.city || '%')
+                )
             )
+          )
         )
       `;
+    } else {
+      query += ` AND sr.supplier_id IS NULL `;
     }
 
     query += ` ORDER BY sr.created_at DESC`;

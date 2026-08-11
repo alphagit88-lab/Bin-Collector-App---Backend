@@ -27,7 +27,12 @@ const calculatePrice = async (req, res) => {
       end_date,
       latitude,
       longitude,
+      lat,
+      lng
     } = req.body;
+    
+    latitude = latitude || lat;
+    longitude = longitude || lng;
 
     // Handle stringified JSON
     if (typeof bins === 'string') {
@@ -62,53 +67,34 @@ const calculatePrice = async (req, res) => {
       }));
     }
 
-    let finalEstimatedPrice = 0;
-    let basePrice = null;
-    let durationDays = null;
-    let additionalCharge = null;
-    let exceededDays = null;
-
     // Find qualified suppliers to get total_price (same as createServiceRequest)
-    const qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
+    let qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
+    let isSplitOrder = false;
+    let splits = null;
+    let singleSupplierPrice = 0;
 
-    if (qualifiedSuppliers.length > 0) {
-      finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
+    let singleSupplierId = null;
+    let singleSupplierName = null;
 
-      // Calculate duration charges if dates are provided
-      if (start_date && end_date) {
-        durationDays = 1;
-        additionalCharge = 0;
-        exceededDays = 0;
-        basePrice = finalEstimatedPrice;
-
-        const startDate = new Date(start_date);
-        const endDate = new Date(end_date);
-        const diffTime = Math.abs(endDate - startDate);
-        durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
-
-        if (service_category === 'residential') {
-          const limitSetting = await SystemSetting.findByKey('residential_duration_limit');
-          const rateSetting = await SystemSetting.findByKey('additional_day_charge');
-
-          if (limitSetting && rateSetting) {
-            const limitDays = parseInt(limitSetting.value);
-            const dailyRate = parseFloat(rateSetting.value);
-
-            if (durationDays > limitDays) {
-              exceededDays = durationDays - limitDays;
-              additionalCharge = exceededDays * dailyRate;
-              finalEstimatedPrice += additionalCharge;
-            }
-          }
-        }
-
-        basePrice = finalEstimatedPrice - additionalCharge;
+    if (qualifiedSuppliers.length === 0) {
+      splits = await User.findSupplierSplitsForMultipleBins(orderItems, latitude, longitude, location);
+      if (splits && splits.length > 0) {
+        isSplitOrder = true;
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: 'The selected bins are not available from any suppliers in your area',
+        });
       }
+    } else {
+      // Single supplier can fulfill entire order — no split needed (it's sorted by price)
+      singleSupplierPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
+      singleSupplierId = qualifiedSuppliers[0].id;
+      singleSupplierName = qualifiedSuppliers[0].name || qualifiedSuppliers[0].company_name;
     }
 
-    // Calculate GST - same logic as createServiceRequest
+    // Determine GST Rate
     let gstRate = 0.00;
-    let gstAmount = 0.00;
     let provinceCode = null;
 
     const provinceMap = {
@@ -175,22 +161,91 @@ const calculatePrice = async (req, res) => {
       }
     }
 
-    const subtotal = finalEstimatedPrice;
-    gstAmount = subtotal * (gstRate / 100);
-    const totalWithGST = subtotal + gstAmount;
+    // Calculate duration details (applies universally)
+    let durationDays = null;
+    let exceededDays = null;
+    let dailyRate = 0;
+
+    if (start_date && end_date) {
+        durationDays = 1;
+        exceededDays = 0;
+        const startDate = new Date(start_date);
+        const endDate = new Date(end_date);
+        const diffTime = Math.abs(endDate - startDate);
+        durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+
+        if (service_category === 'residential') {
+          const limitSetting = await SystemSetting.findByKey('residential_duration_limit');
+          const rateSetting = await SystemSetting.findByKey('additional_day_charge');
+
+          if (limitSetting && rateSetting) {
+            const limitDays = parseInt(limitSetting.value);
+            dailyRate = parseFloat(rateSetting.value);
+            if (durationDays > limitDays) {
+              exceededDays = durationDays - limitDays;
+            }
+          }
+        }
+    }
+
+    if (isSplitOrder) {
+      // Process each split independently
+      const processedSplits = splits.map(split => {
+        const base_price = parseFloat(split.total_price) || 0;
+        const additional_duration_charge = exceededDays && exceededDays > 0 ? (exceededDays * dailyRate) : 0;
+        const subtotal = base_price + additional_duration_charge;
+        const gst_amount = subtotal * (gstRate / 100);
+        const total = subtotal + gst_amount;
+        return { supplier_id: split.supplier_id, supplier_name: split.supplier_name, items: split.items, base_price, additional_duration_charge, subtotal, gst_amount, total };
+      });
+
+      const grand_base_price = processedSplits.reduce((sum, s) => sum + s.base_price, 0);
+      const grand_additional_duration_charge = processedSplits.reduce((sum, s) => sum + s.additional_duration_charge, 0);
+      const grand_subtotal = processedSplits.reduce((sum, s) => sum + s.subtotal, 0);
+      const grand_gst_amount = processedSplits.reduce((sum, s) => sum + s.gst_amount, 0);
+      const grand_total = processedSplits.reduce((sum, s) => sum + s.total, 0);
+
+      return res.json({
+        success: true,
+        data: {
+          base_price: grand_base_price,
+          additional_duration_charge: grand_additional_duration_charge,
+          duration_days: durationDays,
+          exceeded_days: exceededDays,
+          subtotal: grand_subtotal,
+          gst_rate: gstRate,
+          gst_amount: grand_gst_amount,
+          total: grand_total,
+          province_code: provinceCode,
+          is_split_order: true,
+          splits: processedSplits
+        }
+      });
+    }
+
+    // Single supplier — standard price calculation
+    const additional_duration_charge = exceededDays && exceededDays > 0 ? (exceededDays * dailyRate) : 0;
+    const base_price = singleSupplierPrice;
+    const subtotal = base_price + additional_duration_charge;
+    const gst_amount = subtotal * (gstRate / 100);
+    const total = subtotal + gst_amount;
 
     res.json({
       success: true,
       data: {
-        base_price: basePrice !== null ? basePrice : finalEstimatedPrice,
-        additional_duration_charge: additionalCharge !== null ? additionalCharge : 0,
+        base_price,
+        additional_duration_charge,
         duration_days: durationDays,
         exceeded_days: exceededDays,
         subtotal,
         gst_rate: gstRate,
-        gst_amount: gstAmount,
-        total: totalWithGST,
-        province_code: provinceCode
+        gst_amount,
+        total,
+        province_code: provinceCode,
+        is_split_order: false,
+        splits: null,
+        supplier_id: singleSupplierId,
+        supplier_name: singleSupplierName
       }
     });
   } catch (error) {
@@ -233,6 +288,7 @@ const createServiceRequest = async (req, res) => {
       estimated_price,
       po_number,
       project_id,
+      supplier_id,
     } = req.body;
 
     console.log(`Booking request category: ${service_category}`);
@@ -310,6 +366,10 @@ const createServiceRequest = async (req, res) => {
           success: false,
           message: 'The selected bins are not available from any supplier in your area',
         });
+      }
+
+      if (supplier_id) {
+        qualifiedSuppliers = qualifiedSuppliers.filter(s => s.id == supplier_id);
       }
 
       if (!finalEstimatedPrice) {
@@ -453,6 +513,7 @@ const createServiceRequest = async (req, res) => {
     const serviceRequest = await ServiceRequest.create({
       request_id: requestId,
       customer_id: customerId,
+      supplier_id: supplier_id || null,
       service_category,
       bin_type_id: firstBin ? parseInt(firstBin.bin_type_id) : null,
       bin_size_id: firstBin && firstBin.bin_size_id ? parseInt(firstBin.bin_size_id) : null,

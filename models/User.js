@@ -367,7 +367,7 @@ class User {
       FROM users u
       JOIN suppliers_with_stock sws ON u.id = sws.supplier_id
       JOIN supplier_totals st ON u.id = st.supplier_id
-      ORDER BY u.name
+      ORDER BY st.total_price ASC, u.name ASC
     `;
 
     const result = await pool.query(query, values);
@@ -407,6 +407,135 @@ class User {
     `;
     const result = await pool.query(query, values);
     return result.rows;
+  }
+
+  // Find supplier splits for multiple bins (Greedy algorithm)
+  static async findSupplierSplitsForMultipleBins(orderItems, latitude = null, longitude = null, locationText = null) {
+    const binRequirements = orderItems.map((item) => {
+      const typeId = parseInt(item.bin_type_id);
+      const rawSizeId = item.bin_size_id;
+      const sizeId = (rawSizeId === null || rawSizeId === undefined || rawSizeId === 'null' || rawSizeId === '') 
+        ? null : parseInt(rawSizeId);
+      
+      return {
+        bin_type_id: isNaN(typeId) ? null : typeId,
+        bin_size_id: (sizeId !== null && isNaN(sizeId)) ? null : sizeId,
+        quantity: parseInt(item.quantity) || 1,
+      };
+    }).filter(req => req.bin_type_id !== null);
+
+    if (binRequirements.length === 0) return null;
+
+    const values = [];
+    let paramCount = 1;
+    let locationFilter = '';
+    const lat = parseFloat(latitude);
+    const lon = parseFloat(longitude);
+
+    if (!isNaN(lat) && !isNaN(lon)) {
+      values.push(lat, lon);
+      locationFilter = `AND (6371 * acos(cos(radians($1)) * cos(radians(sa.latitude)) * cos(radians(sa.longitude) - radians($2)) + sin(radians($1)) * sin(radians(sa.latitude)))) <= sa.area_radius_km`;
+      paramCount = 3;
+    } else if (locationText) {
+      values.push(locationText);
+      locationFilter = `AND $1 ILIKE '%' || sa.city || '%'`;
+      paramCount = 2;
+    } else {
+      return null;
+    }
+
+    const pricingConditions = binRequirements.map((req) => {
+      const p1 = paramCount++;
+      const p2 = paramCount++;
+      values.push(req.bin_type_id, req.bin_size_id);
+      return `(sab.bin_type_id = $${p1} AND sab.bin_size_id IS NOT DISTINCT FROM $${p2})`;
+    });
+
+    const query = `
+      WITH matched_service_areas AS (
+        SELECT sa.id, sa.supplier_id
+        FROM service_areas sa
+        WHERE 1=1 ${locationFilter}
+      ),
+      active_pricing AS (
+        SELECT msa.supplier_id, sab.bin_type_id, sab.bin_size_id, MIN(sab.admin_final_price) as price
+        FROM matched_service_areas msa
+        JOIN service_area_bins sab ON msa.id = sab.service_area_id
+        WHERE sab.is_active = TRUE AND sab.admin_final_price IS NOT NULL
+          AND (${pricingConditions.join(' OR ')})
+        GROUP BY msa.supplier_id, sab.bin_type_id, sab.bin_size_id
+      ),
+      available_bins AS (
+        SELECT pb.supplier_id, pb.bin_type_id, pb.bin_size_id, COUNT(*) as count
+        FROM physical_bins pb
+        JOIN active_pricing ap ON pb.supplier_id = ap.supplier_id 
+          AND pb.bin_type_id = ap.bin_type_id 
+          AND pb.bin_size_id IS NOT DISTINCT FROM ap.bin_size_id
+        WHERE pb.status = 'available'
+        GROUP BY pb.supplier_id, pb.bin_type_id, pb.bin_size_id
+      )
+      SELECT 
+        ab.supplier_id, ab.bin_type_id, ab.bin_size_id, ab.count, ap.price,
+        u.name, u.phone, u.email
+      FROM available_bins ab
+      JOIN active_pricing ap ON ab.supplier_id = ap.supplier_id 
+        AND ab.bin_type_id = ap.bin_type_id 
+        AND ab.bin_size_id IS NOT DISTINCT FROM ap.bin_size_id
+      JOIN users u ON ab.supplier_id = u.id
+    `;
+    const result = await pool.query(query, values);
+    const available = result.rows;
+
+    let remainingRequirements = binRequirements.map(req => ({ ...req }));
+    const splits = [];
+
+    while (remainingRequirements.some(req => req.quantity > 0)) {
+      const supplierScores = {};
+      for (const row of available) {
+        if (!supplierScores[row.supplier_id]) {
+          supplierScores[row.supplier_id] = { supplier_id: row.supplier_id, name: row.name, score: 0, cost: 0, items: [] };
+        }
+        const req = remainingRequirements.find(r => r.bin_type_id === row.bin_type_id && (r.bin_size_id == row.bin_size_id || (r.bin_size_id == null && row.bin_size_id == null)));
+        if (req && req.quantity > 0) {
+          const taking = Math.min(row.count, req.quantity);
+          if (taking > 0) {
+             supplierScores[row.supplier_id].score += taking;
+             supplierScores[row.supplier_id].cost += taking * parseFloat(row.price);
+             supplierScores[row.supplier_id].items.push({
+               bin_type_id: row.bin_type_id,
+               bin_size_id: row.bin_size_id,
+               quantity: taking,
+               price: parseFloat(row.price)
+             });
+          }
+        }
+      }
+
+      const candidates = Object.values(supplierScores).filter(s => s.score > 0);
+      if (candidates.length === 0) {
+        return null; // Impossible to fulfill
+      }
+
+      candidates.sort((a, b) => b.score - a.score || a.cost - b.cost);
+      const best = candidates[0];
+
+      splits.push({
+         supplier_id: best.supplier_id,
+         supplier_name: best.name,
+         items: best.items,
+         total_price: best.cost
+      });
+
+      for (const item of best.items) {
+        const req = remainingRequirements.find(r => r.bin_type_id === item.bin_type_id && (r.bin_size_id == item.bin_size_id || (r.bin_size_id == null && item.bin_size_id == null)));
+        req.quantity -= item.quantity;
+        
+        const availRow = available.find(r => r.supplier_id === best.supplier_id && r.bin_type_id === item.bin_type_id && (r.bin_size_id == item.bin_size_id || (r.bin_size_id == null && item.bin_size_id == null)));
+        availRow.count -= item.quantity;
+      }
+    }
+
+    return splits;
   }
 }
 
