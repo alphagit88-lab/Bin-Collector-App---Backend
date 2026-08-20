@@ -30,7 +30,7 @@ const calculatePrice = async (req, res) => {
       lat,
       lng
     } = req.body;
-    
+
     latitude = latitude || lat;
     longitude = longitude || lng;
 
@@ -83,7 +83,7 @@ const calculatePrice = async (req, res) => {
       } else {
         return res.status(404).json({
           success: false,
-          message: 'The selected bins are not available from any suppliers in your area',
+          message: 'The selected bins/qty are not available from any suppliers in your area',
         });
       }
     } else {
@@ -167,25 +167,25 @@ const calculatePrice = async (req, res) => {
     let dailyRate = 0;
 
     if (start_date && end_date) {
-        durationDays = 1;
-        exceededDays = 0;
-        const startDate = new Date(start_date);
-        const endDate = new Date(end_date);
-        const diffTime = Math.abs(endDate - startDate);
-        durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+      durationDays = 1;
+      exceededDays = 0;
+      const startDate = new Date(start_date);
+      const endDate = new Date(end_date);
+      const diffTime = Math.abs(endDate - startDate);
+      durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-        if (service_category === 'residential') {
-          const limitSetting = await SystemSetting.findByKey('residential_duration_limit');
-          const rateSetting = await SystemSetting.findByKey('additional_day_charge');
+      if (service_category === 'residential') {
+        const limitSetting = await SystemSetting.findByKey('residential_duration_limit');
+        const rateSetting = await SystemSetting.findByKey('additional_day_charge');
 
-          if (limitSetting && rateSetting) {
-            const limitDays = parseInt(limitSetting.value);
-            dailyRate = parseFloat(rateSetting.value);
-            if (durationDays > limitDays) {
-              exceededDays = durationDays - limitDays;
-            }
+        if (limitSetting && rateSetting) {
+          const limitDays = parseInt(limitSetting.value);
+          dailyRate = parseFloat(rateSetting.value);
+          if (durationDays > limitDays) {
+            exceededDays = durationDays - limitDays;
           }
         }
+      }
     }
 
     if (isSplitOrder) {
@@ -364,7 +364,7 @@ const createServiceRequest = async (req, res) => {
         cleanupFiles();
         return res.status(404).json({
           success: false,
-          message: 'The selected bins are not available from any supplier in your area',
+          message: 'The selected bins/qty are not available from any supplier in your area',
         });
       }
 
@@ -668,7 +668,7 @@ const getSupplierRequests = async (req, res) => {
     // Parse additional_images for each request
     const parsedRequests = requests.map(request => {
       let parsedRequest = { ...request };
-      
+
       if (parsedRequest.additional_images && typeof parsedRequest.additional_images === 'string') {
         try {
           parsedRequest.additional_images = JSON.parse(parsedRequest.additional_images);
@@ -678,7 +678,7 @@ const getSupplierRequests = async (req, res) => {
       } else if (!parsedRequest.additional_images) {
         parsedRequest.additional_images = [];
       }
-      
+
       return parsedRequest;
     });
 
@@ -707,7 +707,7 @@ const getPendingRequests = async (req, res) => {
       requests.map(async (request) => {
         const orderItems = await OrderItem.findByServiceRequest(request.id);
         let parsedRequest = { ...request, orderItems };
-        
+
         if (parsedRequest.additional_images && typeof parsedRequest.additional_images === 'string') {
           try {
             parsedRequest.additional_images = JSON.parse(parsedRequest.additional_images);
@@ -717,7 +717,7 @@ const getPendingRequests = async (req, res) => {
         } else if (!parsedRequest.additional_images) {
           parsedRequest.additional_images = [];
         }
-        
+
         return parsedRequest;
       })
     );
@@ -1516,9 +1516,9 @@ const cancelRequest = async (req, res) => {
     }
 
     // Check if user is authorized to cancel
-    if (!isAdmin && 
-        request.customer_id !== userId && 
-        request.supplier_id !== userId) {
+    if (!isAdmin &&
+      request.customer_id !== userId &&
+      request.supplier_id !== userId) {
       return res.status(403).json({
         success: false,
         message: 'You can only cancel your own requests',
@@ -1557,7 +1557,7 @@ const cancelRequest = async (req, res) => {
     for (const orderItem of orderItems) {
       await OrderItem.update(orderItem.id, { status: 'pending' });
       if (orderItem.physical_bin_id) {
-        await PhysicalBin.update(orderItem.physical_bin_id, { 
+        await PhysicalBin.update(orderItem.physical_bin_id, {
           status: 'available',
           current_customer_id: null,
           current_service_request_id: null
@@ -1738,7 +1738,7 @@ const createSupplierBooking = async (req, res) => {
 
     // 2. Prepare Order Items
     if (typeof bins === 'string') {
-      try { bins = JSON.parse(bins); } catch (e) {}
+      try { bins = JSON.parse(bins); } catch (e) { }
     }
 
     let orderItems = [];
@@ -1759,12 +1759,12 @@ const createSupplierBooking = async (req, res) => {
     // For now, let's just use a placeholder or expect it in the body if we want it flexible.
     // In this specific flow, let's assume the supplier sets the price or it's fetched from their configuration.
     // To keep it robust, let's try to find their configured price for these bins in this area.
-    
+
     let totalEstimatedPrice = 0;
     // We'll need a way to get the price. Let's assume for now the supplier provides it or we default to 0.
     // The user didn't specify pricing logic for this specific flow, but usually, it's either their standard rate or a custom one.
     // Let's assume they might pass a custom price per item.
-    
+
     for (const item of bins) {
       totalEstimatedPrice += (parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1);
     }
@@ -2099,7 +2099,7 @@ const updateOrderItemStatus = async (req, res) => {
 
     // Fetch all items under the booking to check rollup status
     const allItems = await OrderItem.findByServiceRequest(request.id);
-    
+
     // Rollup Logic: Determine aggregate order status
     let newBookingStatus = request.status;
 
@@ -2160,7 +2160,7 @@ const updateOrderItemStatus = async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       const msg = `Booking #${updatedRequest.request_id} bin status updated: ${updatedItem.bin_type_name} is now ${updatedItem.status.replace(/_/g, ' ')}`;
-      
+
       io.to(`user_${updatedRequest.customer_id}`).emit('status_update', {
         booking_id: updatedRequest.id,
         status: updatedRequest.status,

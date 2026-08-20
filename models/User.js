@@ -341,12 +341,34 @@ class User {
         JOIN bin_requirements req ON ap.bin_type_id = req.bin_type_id AND ap.bin_size_id IS NOT DISTINCT FROM req.bin_size_id
         GROUP BY ap.supplier_id
       ),
-      available_bins AS (
-        SELECT pb.supplier_id, pb.bin_type_id, pb.bin_size_id, COUNT(*) as count
+      total_available AS (
+        SELECT pb.supplier_id, pb.bin_type_id, pb.bin_size_id, COUNT(pb.id) as total_count
         FROM physical_bins pb
         JOIN suppliers_with_all_pricing swp ON pb.supplier_id = swp.supplier_id
         WHERE pb.status = 'available'
         GROUP BY pb.supplier_id, pb.bin_type_id, pb.bin_size_id
+      ),
+      pending_assignments AS (
+        SELECT sr.supplier_id, oi.bin_type_id, oi.bin_size_id, COUNT(oi.id) as pending_count
+        FROM order_items oi
+        JOIN service_requests sr ON oi.service_request_id = sr.id
+        JOIN suppliers_with_all_pricing swp ON sr.supplier_id = swp.supplier_id
+        WHERE oi.physical_bin_id IS NULL
+          AND oi.status NOT IN ('completed', 'cancelled')
+        GROUP BY sr.supplier_id, oi.bin_type_id, oi.bin_size_id
+      ),
+      available_bins AS (
+        SELECT 
+          ta.supplier_id, 
+          ta.bin_type_id, 
+          ta.bin_size_id, 
+          (ta.total_count - COALESCE(pa.pending_count, 0)) as count
+        FROM total_available ta
+        LEFT JOIN pending_assignments pa 
+          ON ta.supplier_id = pa.supplier_id 
+          AND ta.bin_type_id = pa.bin_type_id 
+          AND ta.bin_size_id IS NOT DISTINCT FROM pa.bin_size_id
+        WHERE (ta.total_count - COALESCE(pa.pending_count, 0)) > 0
       ),
       suppliers_with_stock AS (
         SELECT ab.supplier_id
@@ -465,14 +487,38 @@ class User {
           AND (${pricingConditions.join(' OR ')})
         GROUP BY msa.supplier_id, sab.bin_type_id, sab.bin_size_id
       ),
-      available_bins AS (
-        SELECT pb.supplier_id, pb.bin_type_id, pb.bin_size_id, COUNT(*) as count
+      total_available AS (
+        SELECT pb.supplier_id, pb.bin_type_id, pb.bin_size_id, COUNT(pb.id) as total_count
         FROM physical_bins pb
         JOIN active_pricing ap ON pb.supplier_id = ap.supplier_id 
           AND pb.bin_type_id = ap.bin_type_id 
           AND pb.bin_size_id IS NOT DISTINCT FROM ap.bin_size_id
         WHERE pb.status = 'available'
         GROUP BY pb.supplier_id, pb.bin_type_id, pb.bin_size_id
+      ),
+      pending_assignments AS (
+        SELECT sr.supplier_id, oi.bin_type_id, oi.bin_size_id, COUNT(oi.id) as pending_count
+        FROM order_items oi
+        JOIN service_requests sr ON oi.service_request_id = sr.id
+        JOIN active_pricing ap ON sr.supplier_id = ap.supplier_id 
+          AND oi.bin_type_id = ap.bin_type_id 
+          AND oi.bin_size_id IS NOT DISTINCT FROM ap.bin_size_id
+        WHERE oi.physical_bin_id IS NULL
+          AND oi.status NOT IN ('completed', 'cancelled')
+        GROUP BY sr.supplier_id, oi.bin_type_id, oi.bin_size_id
+      ),
+      available_bins AS (
+        SELECT 
+          ta.supplier_id, 
+          ta.bin_type_id, 
+          ta.bin_size_id, 
+          (ta.total_count - COALESCE(pa.pending_count, 0)) as count
+        FROM total_available ta
+        LEFT JOIN pending_assignments pa 
+          ON ta.supplier_id = pa.supplier_id 
+          AND ta.bin_type_id = pa.bin_type_id 
+          AND ta.bin_size_id IS NOT DISTINCT FROM pa.bin_size_id
+        WHERE (ta.total_count - COALESCE(pa.pending_count, 0)) > 0
       )
       SELECT 
         ab.supplier_id, ab.bin_type_id, ab.bin_size_id, ab.count, ap.price,

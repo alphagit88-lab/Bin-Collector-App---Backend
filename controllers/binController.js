@@ -454,19 +454,38 @@ const getAvailableBinTypesForLocation = async (req, res) => {
 
     // 3. Get distinct bin types with approved admin prices AND available bins from same supplier
     const query = `
+      WITH pending_assignments AS (
+        SELECT sr.supplier_id, oi.bin_type_id, oi.bin_size_id, COUNT(oi.id) as pending_count
+        FROM order_items oi
+        JOIN service_requests sr ON oi.service_request_id = sr.id
+        WHERE oi.physical_bin_id IS NULL
+          AND oi.status NOT IN ('completed', 'cancelled')
+          AND sr.supplier_id IS NOT NULL
+        GROUP BY sr.supplier_id, oi.bin_type_id, oi.bin_size_id
+      ),
+      total_available AS (
+        SELECT pb.supplier_id, pb.bin_type_id, pb.bin_size_id, COUNT(pb.id) as total_count
+        FROM physical_bins pb
+        WHERE pb.status = 'available'
+        GROUP BY pb.supplier_id, pb.bin_type_id, pb.bin_size_id
+      )
       SELECT DISTINCT bt.*
       FROM bin_types bt
       INNER JOIN service_area_bins sab ON bt.id = sab.bin_type_id
       INNER JOIN service_areas sa ON sab.service_area_id = sa.id
-      INNER JOIN physical_bins pb 
-        ON bt.id = pb.bin_type_id 
-        AND pb.supplier_id = sa.supplier_id
-        AND (sab.bin_size_id IS NULL OR pb.bin_size_id = sab.bin_size_id)
+      INNER JOIN total_available ta 
+        ON bt.id = ta.bin_type_id 
+        AND ta.supplier_id = sa.supplier_id
+        AND (sab.bin_size_id IS NULL OR ta.bin_size_id = sab.bin_size_id)
+      LEFT JOIN pending_assignments pa 
+        ON ta.supplier_id = pa.supplier_id 
+        AND ta.bin_type_id = pa.bin_type_id 
+        AND ta.bin_size_id IS NOT DISTINCT FROM pa.bin_size_id
       WHERE sab.service_area_id = ANY($1)
         AND sab.is_active = true
         AND sab.admin_final_price IS NOT NULL
-        AND pb.status = 'available'
         AND bt.is_active = true
+        AND (ta.total_count - COALESCE(pa.pending_count, 0)) > 0
       ORDER BY bt.display_order ASC, bt.name ASC
     `;
     const result = await pool.query(query, [areaIds]);
@@ -512,21 +531,40 @@ const getAvailableBinSizesForLocationAndType = async (req, res) => {
 
     // 3. Get distinct bin sizes with approved admin prices AND available bins from same supplier
     const query = `
+      WITH pending_assignments AS (
+        SELECT sr.supplier_id, oi.bin_type_id, oi.bin_size_id, COUNT(oi.id) as pending_count
+        FROM order_items oi
+        JOIN service_requests sr ON oi.service_request_id = sr.id
+        WHERE oi.physical_bin_id IS NULL
+          AND oi.status NOT IN ('completed', 'cancelled')
+          AND sr.supplier_id IS NOT NULL
+        GROUP BY sr.supplier_id, oi.bin_type_id, oi.bin_size_id
+      ),
+      total_available AS (
+        SELECT pb.supplier_id, pb.bin_type_id, pb.bin_size_id, COUNT(pb.id) as total_count
+        FROM physical_bins pb
+        WHERE pb.status = 'available'
+        GROUP BY pb.supplier_id, pb.bin_type_id, pb.bin_size_id
+      )
       SELECT DISTINCT bs.*
       FROM bin_sizes bs
       INNER JOIN service_area_bins sab ON bs.id = sab.bin_size_id
       INNER JOIN service_areas sa ON sab.service_area_id = sa.id
-      INNER JOIN physical_bins pb 
-        ON bs.id = pb.bin_size_id 
-        AND pb.bin_type_id = $2
-        AND pb.supplier_id = sa.supplier_id
+      INNER JOIN total_available ta 
+        ON bs.id = ta.bin_size_id 
+        AND ta.bin_type_id = $2
+        AND ta.supplier_id = sa.supplier_id
+      LEFT JOIN pending_assignments pa 
+        ON ta.supplier_id = pa.supplier_id 
+        AND ta.bin_type_id = pa.bin_type_id 
+        AND ta.bin_size_id IS NOT DISTINCT FROM pa.bin_size_id
       WHERE sab.service_area_id = ANY($1)
         AND sab.bin_type_id = $2
         AND bs.bin_type_id = $2
         AND sab.is_active = true
         AND sab.admin_final_price IS NOT NULL
-        AND pb.status = 'available'
         AND bs.is_active = true
+        AND (ta.total_count - COALESCE(pa.pending_count, 0)) > 0
       ORDER BY bs.display_order ASC, bs.size ASC
     `;
     const result = await pool.query(query, [areaIds, parseInt(binTypeId)]);
