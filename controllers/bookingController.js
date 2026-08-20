@@ -1555,7 +1555,7 @@ const cancelRequest = async (req, res) => {
     // Update order items and bins
     const orderItems = await OrderItem.findByServiceRequest(id);
     for (const orderItem of orderItems) {
-      await OrderItem.update(orderItem.id, { status: 'pending' });
+      await OrderItem.update(orderItem.id, { status: 'completed' });
       if (orderItem.physical_bin_id) {
         await PhysicalBin.update(orderItem.physical_bin_id, {
           status: 'available',
