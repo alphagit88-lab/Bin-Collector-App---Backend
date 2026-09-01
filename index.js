@@ -34,6 +34,8 @@ const allowedOrigins = [
   'http://localhost:8081',
   'http://192.168.8.120:3000',
   'http://192.168.8.120:8081',
+  'https://bindrop.ai',
+  'https://www.bindrop.ai'
 ];
 
 // Middleware
