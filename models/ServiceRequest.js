@@ -442,7 +442,10 @@ class ServiceRequest {
       'duration_days',
       'exceeded_days',
       'gst_rate',
-      'gst_amount'
+      'gst_amount',
+      'start_date',
+      'end_date',
+      'estimated_price'
     ];
     const updateFields = [];
     const values = [];

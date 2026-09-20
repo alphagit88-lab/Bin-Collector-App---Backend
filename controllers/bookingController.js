@@ -28,7 +28,8 @@ const calculatePrice = async (req, res) => {
       latitude,
       longitude,
       lat,
-      lng
+      lng,
+      booking_id
     } = req.body;
 
     latitude = latitude || lat;
@@ -50,47 +51,61 @@ const calculatePrice = async (req, res) => {
       });
     }
 
-    if (!bins || !Array.isArray(bins) || bins.length === 0) {
+    if (!booking_id && (!bins || !Array.isArray(bins) || bins.length === 0)) {
       return res.status(400).json({
         success: false,
         message: 'Bins are required'
       });
     }
 
-    // Use same logic as createServiceRequest to calculate price
-    let orderItems = [];
-    if (bins && Array.isArray(bins) && bins.length > 0) {
-      orderItems = bins.map(bin => ({
-        bin_type_id: parseInt(bin.bin_type_id),
-        bin_size_id: bin.bin_size_id ? parseInt(bin.bin_size_id) : null,
-        quantity: parseInt(bin.quantity) || 1,
-      }));
-    }
-
-    // Find qualified suppliers to get total_price (same as createServiceRequest)
-    let qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
-    let isSplitOrder = false;
-    let splits = null;
     let singleSupplierPrice = 0;
-
     let singleSupplierId = null;
     let singleSupplierName = null;
+    let isSplitOrder = false;
+    let splits = null;
 
-    if (qualifiedSuppliers.length === 0) {
-      splits = await User.findSupplierSplitsForMultipleBins(orderItems, latitude, longitude, location);
-      if (splits && splits.length > 0) {
-        isSplitOrder = true;
-      } else {
-        return res.status(404).json({
-          success: false,
-          message: 'The selected bins/qty are not available from any suppliers in your area',
-        });
+    if (booking_id) {
+      // Existing booking - use existing base_price and bypass supplier search
+      const existingBooking = await ServiceRequest.findById(booking_id);
+      if (!existingBooking) {
+        return res.status(404).json({ success: false, message: 'Existing booking not found' });
       }
+      singleSupplierPrice = parseFloat(existingBooking.base_price) || 0;
+      singleSupplierId = existingBooking.supplier_id;
+      // location and lat/lng could be overridden by existing order if not provided
+      if (!location) location = existingBooking.location;
+      if (!latitude) latitude = existingBooking.latitude;
+      if (!longitude) longitude = existingBooking.longitude;
     } else {
-      // Single supplier can fulfill entire order — no split needed (it's sorted by price)
-      singleSupplierPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
-      singleSupplierId = qualifiedSuppliers[0].id;
-      singleSupplierName = qualifiedSuppliers[0].name || qualifiedSuppliers[0].company_name;
+      // New booking - Use same logic as createServiceRequest to calculate price
+      let orderItems = [];
+      if (bins && Array.isArray(bins) && bins.length > 0) {
+        orderItems = bins.map(bin => ({
+          bin_type_id: parseInt(bin.bin_type_id),
+          bin_size_id: bin.bin_size_id ? parseInt(bin.bin_size_id) : null,
+          quantity: parseInt(bin.quantity) || 1,
+        }));
+      }
+
+      // Find qualified suppliers to get total_price (same as createServiceRequest)
+      let qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
+      
+      if (qualifiedSuppliers.length === 0) {
+        splits = await User.findSupplierSplitsForMultipleBins(orderItems, latitude, longitude, location);
+        if (splits && splits.length > 0) {
+          isSplitOrder = true;
+        } else {
+          return res.status(404).json({
+            success: false,
+            message: 'The selected bins/qty are not available from any suppliers in your area',
+          });
+        }
+      } else {
+        // Single supplier can fulfill entire order — no split needed (it's sorted by price)
+        singleSupplierPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
+        singleSupplierId = qualifiedSuppliers[0].id;
+        singleSupplierName = qualifiedSuppliers[0].name || qualifiedSuppliers[0].company_name;
+      }
     }
 
     // Determine GST Rate
@@ -2217,7 +2232,118 @@ const updateOrderItemStatus = async (req, res) => {
   }
 };
 
+// Update request by customer (for editing dates, contact, instructions, etc.)
+const updateRequestCustomer = async (req, res) => {
+  const cleanupFiles = () => {
+    if (req.files && Array.isArray(req.files)) {
+      req.files.forEach(file => {
+        const filePath = path.join(__dirname, '../uploads', file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      });
+    }
+  };
+
+  try {
+    const { id } = req.params;
+    const customerId = req.user.id;
+    const request = await ServiceRequest.findById(id);
+
+    if (!request) {
+      cleanupFiles();
+      return res.status(404).json({ success: false, message: 'Request not found' });
+    }
+
+    if (request.customer_id !== customerId && req.user.role !== 'admin') {
+      cleanupFiles();
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (request.status !== 'pending' && req.user.role !== 'admin') {
+      cleanupFiles();
+      return res.status(400).json({ success: false, message: 'Only pending requests can be edited' });
+    }
+
+    const {
+      start_date,
+      end_date,
+      contact_number,
+      contact_email,
+      instructions,
+      estimated_price,
+      base_price,
+      additional_duration_charge,
+      duration_days,
+      exceeded_days,
+      gst_rate,
+      gst_amount,
+      existing_attachments
+    } = req.body;
+
+    const updates = {};
+    if (start_date) updates.start_date = start_date;
+    if (end_date) updates.end_date = end_date;
+    if (contact_number) updates.contact_number = contact_number;
+    if (contact_email) updates.contact_email = contact_email;
+    if (instructions !== undefined) updates.instructions = instructions;
+
+    if (estimated_price !== undefined) updates.estimated_price = parseFloat(estimated_price);
+    if (base_price !== undefined) updates.base_price = parseFloat(base_price);
+    if (additional_duration_charge !== undefined) updates.additional_duration_charge = parseFloat(additional_duration_charge);
+    if (duration_days !== undefined) updates.duration_days = parseInt(duration_days);
+    if (exceeded_days !== undefined) updates.exceeded_days = parseInt(exceeded_days);
+    if (gst_rate !== undefined) updates.gst_rate = parseFloat(gst_rate);
+    if (gst_amount !== undefined) updates.gst_amount = parseFloat(gst_amount);
+
+    // Handle attachments
+    let oldAttachments = [];
+    if (existing_attachments) {
+      try {
+        oldAttachments = JSON.parse(existing_attachments);
+      } catch (e) {
+        if (typeof existing_attachments === 'string') {
+          oldAttachments = [existing_attachments];
+        } else if (Array.isArray(existing_attachments)) {
+          oldAttachments = existing_attachments;
+        }
+      }
+    } else {
+       oldAttachments = [];
+    }
+
+    const newFileUrls = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
+    const allAttachments = [...oldAttachments, ...newFileUrls];
+
+    if (allAttachments.length > 0) {
+      updates.attachment_url = allAttachments[0];
+      updates.additional_images = JSON.stringify(allAttachments.slice(1));
+    } else {
+      updates.attachment_url = null;
+      updates.additional_images = '[]';
+    }
+
+    const updatedRequest = await ServiceRequest.update(id, updates);
+
+    res.json({
+      success: true,
+      message: 'Request updated successfully',
+      data: { request: updatedRequest }
+    });
+
+  } catch (error) {
+    cleanupFiles();
+    console.error('Update request customer error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating request',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
+  updateRequestCustomer,
   calculatePrice,
   createServiceRequest,
   getMyRequests,
