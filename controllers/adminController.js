@@ -313,10 +313,17 @@ const deleteUser = async (req, res) => {
     });
     } catch (error) {
         console.error('Delete user error:', error);
-        res.status(500).json({
+
+        if (error.code === '23503' || error.code === '23001') {
+            return res.status(409).json({
+                success: false,
+                message: "User can't be deleted because they have existing service requests.",
+            });
+        }
+
+        return res.status(500).json({
             success: false,
-            message: 'Error deleting user',
-            error: error.message,
+            message: 'Unable to delete user.',
         });
     }
 };

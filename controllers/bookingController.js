@@ -1745,6 +1745,7 @@ const createSupplierBooking = async (req, res) => {
         phone: customer_phone,
         role: 'customer',
         password: randomPassword,
+        supplierId: supplierId,
       });
       isNewCustomer = true;
       console.log(`Created new customer: ${customer_name} (${customer_phone}) with random password.`);

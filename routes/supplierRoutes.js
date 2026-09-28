@@ -24,4 +24,9 @@ router.get('/drivers', verifyToken, verifyRole(['supplier', 'admin']), supplierC
 router.post('/drivers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.addDriver);
 router.post('/assign-driver', verifyToken, verifyRole(['supplier', 'admin']), supplierController.assignDriver);
 
+// Customer Management
+router.get('/customers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.getCustomers);
+router.put('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.updateCustomer);
+router.delete('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.removeCustomer);
+
 module.exports = router;

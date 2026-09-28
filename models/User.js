@@ -5,7 +5,7 @@ class User {
   static async create({ name, phone, email, role, password, supplierType, supplierId, canViewBilling }) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const supplier_type = role === 'supplier' ? (supplierType || null) : null;
-    const supplier_id = role === 'driver' ? (supplierId || null) : null;
+    const supplier_id = supplierId || null;
     const can_view_billing = canViewBilling === true ? true : false;
     const query = `
       INSERT INTO users (name, phone, email, role, supplier_type, supplier_id, password_hash, push_token, can_view_billing, created_at, updated_at)

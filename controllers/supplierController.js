@@ -1,3 +1,4 @@
+const pool = require('../config/database');
 const ServiceArea = require('../models/ServiceArea');
 const ServiceAreaBin = require('../models/ServiceAreaBin');
 const BinSize = require('../models/BinSize');
@@ -335,6 +336,79 @@ const updateServiceAreaBinPrice = async (req, res) => {
     }
 };
 
+const getCustomers = async (req, res) => {
+    try {
+        const supplierId = req.user.id;
+        const result = await pool.query(
+            'SELECT id, name, phone, email, created_at FROM users WHERE role = $1 AND supplier_id = $2 ORDER BY name ASC',
+            ['customer', supplierId]
+        );
+        res.json({
+            success: true,
+            data: result.rows
+        });
+    } catch (error) {
+        console.error('Error fetching customers:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching customers',
+            error: error.message
+        });
+    }
+};
+
+const updateCustomer = async (req, res) => {
+    try {
+        const supplierId = req.user.id;
+        const customerId = parseInt(req.params.id);
+        const { name, email } = req.body;
+
+        // Verify this customer belongs to this supplier
+        const check = await pool.query(
+            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3',
+            [customerId, 'customer', supplierId]
+        );
+        if (check.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'You can only edit your own customers' });
+        }
+
+        const result = await pool.query(
+            'UPDATE users SET name = $1, email = $2, updated_at = NOW() WHERE id = $3 RETURNING id, name, phone, email, created_at',
+            [name, email || null, customerId]
+        );
+        res.json({ success: true, data: result.rows[0] });
+    } catch (error) {
+        console.error('Error updating customer:', error);
+        res.status(500).json({ success: false, message: 'Error updating customer', error: error.message });
+    }
+};
+
+const removeCustomer = async (req, res) => {
+    try {
+        const supplierId = req.user.id;
+        const customerId = parseInt(req.params.id);
+
+        // Verify this customer belongs to this supplier
+        const check = await pool.query(
+            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3',
+            [customerId, 'customer', supplierId]
+        );
+        if (check.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'You can only remove your own customers' });
+        }
+
+        // Unlink (set supplier_id to null) instead of hard delete to preserve order history
+        await pool.query(
+            'UPDATE users SET supplier_id = NULL, updated_at = NOW() WHERE id = $1',
+            [customerId]
+        );
+        res.json({ success: true, message: 'Customer removed from your account' });
+    } catch (error) {
+        console.error('Error removing customer:', error);
+        res.status(500).json({ success: false, message: 'Error removing customer', error: error.message });
+    }
+};
+
 module.exports = {
     getAvailability,
     updateAvailability,
@@ -346,5 +420,8 @@ module.exports = {
     updateServiceAreaBinPrice,
     getDrivers,
     addDriver,
-    assignDriver
+    assignDriver,
+    getCustomers,
+    updateCustomer,
+    removeCustomer
 };
