@@ -26,7 +26,7 @@ class Conversation {
 
   static async findOrCreateSupportConversation(userId) {
     // Find admin user (role = 'admin')
-    const adminQuery = "SELECT id FROM users WHERE role = 'admin' LIMIT 1";
+    const adminQuery = "SELECT id FROM users WHERE role = 'admin' AND is_deleted = FALSE LIMIT 1";
     const adminResult = await pool.query(adminQuery);
     
     if (adminResult.rows.length === 0) {

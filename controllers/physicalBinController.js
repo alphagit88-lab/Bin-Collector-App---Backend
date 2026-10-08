@@ -278,7 +278,7 @@ exports.assignBinToSupplier = async (req, res) => {
     }
 
     // Verify supplier exists and is a supplier
-    const supplierCheck = await pool.query('SELECT id, role FROM users WHERE id = $1 AND role = $2', [supplier_id, 'supplier']);
+    const supplierCheck = await pool.query('SELECT id, role FROM users WHERE id = $1 AND role = $2 AND is_deleted = FALSE', [supplier_id, 'supplier']);
     if (supplierCheck.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Supplier not found' });
     }

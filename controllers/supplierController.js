@@ -340,7 +340,7 @@ const getCustomers = async (req, res) => {
     try {
         const supplierId = req.user.id;
         const result = await pool.query(
-            'SELECT id, name, phone, email, created_at FROM users WHERE role = $1 AND supplier_id = $2 ORDER BY name ASC',
+            'SELECT id, name, phone, email, created_at FROM users WHERE role = $1 AND supplier_id = $2 AND is_deleted = FALSE ORDER BY name ASC',
             ['customer', supplierId]
         );
         res.json({
@@ -365,7 +365,7 @@ const updateCustomer = async (req, res) => {
 
         // Verify this customer belongs to this supplier
         const check = await pool.query(
-            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3',
+            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3 AND is_deleted = FALSE',
             [customerId, 'customer', supplierId]
         );
         if (check.rows.length === 0) {
@@ -390,7 +390,7 @@ const removeCustomer = async (req, res) => {
 
         // Verify this customer belongs to this supplier
         const check = await pool.query(
-            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3',
+            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3 AND is_deleted = FALSE',
             [customerId, 'customer', supplierId]
         );
         if (check.rows.length === 0) {

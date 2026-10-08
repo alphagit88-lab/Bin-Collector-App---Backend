@@ -170,6 +170,7 @@ class ServiceAreaBin {
             LEFT JOIN bin_types bt_direct ON sab.bin_type_id = bt_direct.id
             JOIN service_areas sa ON sab.service_area_id = sa.id
             JOIN users u ON sa.supplier_id = u.id
+            WHERE u.is_deleted = FALSE
             ORDER BY sab.is_active, sab.created_at DESC
         `;
         const result = await pool.query(query);

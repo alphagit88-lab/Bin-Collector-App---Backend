@@ -35,7 +35,7 @@ class User {
         created_at,
         updated_at
       FROM users
-      WHERE phone = $1
+      WHERE phone = $1 AND is_deleted = FALSE
     `;
     const result = await pool.query(query, [phone]);
     return result.rows[0];
@@ -59,7 +59,7 @@ class User {
         created_at,
         updated_at
       FROM users
-      WHERE email = $1
+      WHERE email = $1 AND is_deleted = FALSE
     `;
     const result = await pool.query(query, [email]);
     return result.rows[0];
@@ -82,7 +82,7 @@ class User {
         created_at, 
         updated_at 
       FROM users 
-      WHERE id = $1
+      WHERE id = $1 AND is_deleted = FALSE
     `;
     const result = await pool.query(query, [id]);
     return result.rows[0];
@@ -103,7 +103,8 @@ class User {
         delete_request AS "deleteRequest",
         created_at, 
         updated_at 
-      FROM users 
+      FROM users
+      WHERE is_deleted = FALSE
       ORDER BY created_at DESC
     `;
     const result = await pool.query(query);
@@ -122,7 +123,7 @@ class User {
         created_at, 
         updated_at 
       FROM users 
-      WHERE supplier_id = $1 AND role = 'driver'
+      WHERE supplier_id = $1 AND role = 'driver' AND is_deleted = FALSE
       ORDER BY name ASC
     `;
     const result = await pool.query(query, [supplierId]);
@@ -177,7 +178,7 @@ class User {
     const query = `
       UPDATE users 
       SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
+      WHERE id = $${paramCount} AND is_deleted = FALSE
       RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
     const result = await pool.query(query, values);
@@ -185,19 +186,46 @@ class User {
   }
 
   static async updatePushToken(id, pushToken) {
-    const query = 'UPDATE users SET push_token = $1, updated_at = NOW() WHERE id = $2 RETURNING id';
+    const query = 'UPDATE users SET push_token = $1, updated_at = NOW() WHERE id = $2 AND is_deleted = FALSE RETURNING id';
     const result = await pool.query(query, [pushToken, id]);
     return result.rows[0];
   }
 
   static async delete(id) {
-    const query = 'DELETE FROM users WHERE id = $1 RETURNING id';
-    const result = await pool.query(query, [id]);
-    return result.rows[0];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `UPDATE users
+         SET is_deleted = TRUE, deleted_at = NOW(), push_token = NULL,
+             delete_request = FALSE, updated_at = NOW()
+         WHERE id = $1 AND is_deleted = FALSE
+         RETURNING id, role`,
+        [id]
+      );
+
+      if (result.rows[0]?.role === 'supplier') {
+        await client.query(
+          `UPDATE users
+           SET is_deleted = TRUE, deleted_at = NOW(), push_token = NULL,
+               delete_request = FALSE, updated_at = NOW()
+           WHERE supplier_id = $1 AND role = 'driver' AND is_deleted = FALSE`,
+          [id]
+        );
+      }
+
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async requestDelete(id) {
-    const query = 'UPDATE users SET delete_request = TRUE, updated_at = NOW() WHERE id = $1 RETURNING id, delete_request AS "deleteRequest"';
+    const query = 'UPDATE users SET delete_request = TRUE, updated_at = NOW() WHERE id = $1 AND is_deleted = FALSE RETURNING id, delete_request AS "deleteRequest"';
     const result = await pool.query(query, [id]);
     return result.rows[0];
   }
@@ -211,7 +239,7 @@ class User {
   }
 
   static async updatePassword(id, hashedPassword) {
-    const query = 'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2';
+    const query = 'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND is_deleted = FALSE';
     await pool.query(query, [hashedPassword, id]);
   }
 
@@ -244,6 +272,7 @@ class User {
       INNER JOIN service_areas sa ON u.id = sa.supplier_id
       INNER JOIN service_area_bins sab ON sa.id = sab.service_area_id
       WHERE u.role = 'supplier'
+        AND u.is_deleted = FALSE
         AND pb.bin_type_id = $1
         AND pb.bin_size_id IS NOT DISTINCT FROM $2
         AND pb.status = 'available'
@@ -389,6 +418,7 @@ class User {
       FROM users u
       JOIN suppliers_with_stock sws ON u.id = sws.supplier_id
       JOIN supplier_totals st ON u.id = st.supplier_id
+      WHERE u.is_deleted = FALSE
       ORDER BY st.total_price ASC, u.name ASC
     `;
 
@@ -424,6 +454,7 @@ class User {
       FROM users u
       INNER JOIN service_areas sa ON u.id = sa.supplier_id
       WHERE u.role = 'supplier'
+        AND u.is_deleted = FALSE
         ${locationCondition}
       ORDER BY u.name
     `;
@@ -528,6 +559,7 @@ class User {
         AND ab.bin_type_id = ap.bin_type_id 
         AND ab.bin_size_id IS NOT DISTINCT FROM ap.bin_size_id
       JOIN users u ON ab.supplier_id = u.id
+      WHERE u.is_deleted = FALSE
     `;
     const result = await pool.query(query, values);
     const available = result.rows;
