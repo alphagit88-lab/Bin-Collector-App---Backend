@@ -27,27 +27,26 @@ CREATE INDEX IF NOT EXISTS idx_bin_types_active ON bin_types(is_active);
 CREATE INDEX IF NOT EXISTS idx_bin_sizes_type_id ON bin_sizes(bin_type_id);
 CREATE INDEX IF NOT EXISTS idx_bin_sizes_active ON bin_sizes(is_active);
 
--- Insert default bin types
-INSERT INTO bin_types (name, description, display_order) VALUES
-    ('General Waste', 'General household and commercial waste', 1),
-    ('Green Waste', 'Garden and organic waste', 2),
-    ('Builders Waste', 'Construction and building materials', 3),
-    ('Concrete/Dirt', 'Concrete, dirt, and heavy materials', 4)
-ON CONFLICT (name) DO NOTHING;
+-- Dummy bin types and sizes data commented out
+-- INSERT INTO bin_types (name, description, display_order) VALUES
+--     ('General Waste', 'General household and commercial waste', 1),
+--     ('Green Waste', 'Garden and organic waste', 2),
+--     ('Builders Waste', 'Construction and building materials', 3),
+--     ('Concrete/Dirt', 'Concrete, dirt, and heavy materials', 4)
+-- ON CONFLICT (name) DO NOTHING;
 
--- Insert default bin sizes for each type
-INSERT INTO bin_sizes (bin_type_id, size, capacity_cubic_meters, display_order)
-SELECT 
-    bt.id,
-    size_data.size,
-    size_data.capacity,
-    size_data.order
-FROM bin_types bt
-CROSS JOIN (
-    VALUES 
-        ('3m³', 3.0, 1),
-        ('6m³', 6.0, 2),
-        ('10m³', 10.0, 3)
-) AS size_data(size, capacity, "order")
-WHERE bt.name IN ('General Waste', 'Green Waste', 'Builders Waste', 'Concrete/Dirt')
-ON CONFLICT (bin_type_id, size) DO NOTHING;
+-- INSERT INTO bin_sizes (bin_type_id, size, capacity_cubic_meters, display_order)
+-- SELECT 
+--     bt.id,
+--     size_data.size,
+--     size_data.capacity,
+--     size_data.order
+-- FROM bin_types bt
+-- CROSS JOIN (
+--     VALUES 
+--         ('3m³', 3.0, 1),
+--         ('6m³', 6.0, 2),
+--         ('10m³', 10.0, 3)
+-- ) AS size_data(size, capacity, "order")
+-- WHERE bt.name IN ('General Waste', 'Green Waste', 'Builders Waste', 'Concrete/Dirt')
+-- ON CONFLICT (bin_type_id, size) DO NOTHING;

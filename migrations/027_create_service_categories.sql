@@ -11,10 +11,10 @@ CREATE TABLE IF NOT EXISTS service_categories (
 -- Add selected_services field to service_requests
 ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS selected_services JSONB;
 
--- Insert some initial service categories
-INSERT INTO service_categories (name, description) VALUES
-    ('Skip Bin Delivery', 'Delivery of various skip bin sizes'),
-    ('Garden Waste Removal', 'Professional cleaning and removal of garden waste'),
-    ('Pool Bin Services', 'Specialized bins for pool areas'),
-    ('General Service', 'Other general maintenance services')
-ON CONFLICT (name) DO NOTHING;
+-- Dummy service categories data commented out
+-- INSERT INTO service_categories (name, description) VALUES
+--     ('Skip Bin Delivery', 'Delivery of various skip bin sizes'),
+--     ('Garden Waste Removal', 'Professional cleaning and removal of garden waste'),
+--     ('Pool Bin Services', 'Specialized bins for pool areas'),
+--     ('General Service', 'Other general maintenance services')
+-- ON CONFLICT (name) DO NOTHING;

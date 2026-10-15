@@ -429,7 +429,7 @@ const getSupplierAssignedSizes = async (req, res) => {
 
 const getAvailableBinTypesForLocation = async (req, res) => {
   try {
-    const { lat, lon } = req.query;
+    const { lat, lon, supplierId } = req.query;
 
     if (!lat || !lon) {
       return res.status(400).json({
@@ -439,7 +439,11 @@ const getAvailableBinTypesForLocation = async (req, res) => {
     }
 
     // 1. Find service areas covering this location
-    const serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
+    let serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
+
+    if (supplierId) {
+      serviceAreas = serviceAreas.filter(sa => sa.supplier_id == supplierId);
+    }
 
     if (serviceAreas.length === 0) {
       return res.json({
@@ -506,7 +510,7 @@ const getAvailableBinTypesForLocation = async (req, res) => {
 
 const getAvailableBinSizesForLocationAndType = async (req, res) => {
   try {
-    const { lat, lon, binTypeId } = req.query;
+    const { lat, lon, binTypeId, supplierId } = req.query;
 
     if (!lat || !lon || !binTypeId) {
       return res.status(400).json({
@@ -516,7 +520,11 @@ const getAvailableBinSizesForLocationAndType = async (req, res) => {
     }
 
     // 1. Find service areas covering this location
-    const serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
+    let serviceAreas = await ServiceArea.findInRange(parseFloat(lat), parseFloat(lon));
+
+    if (supplierId) {
+      serviceAreas = serviceAreas.filter(sa => sa.supplier_id == supplierId);
+    }
 
     if (serviceAreas.length === 0) {
       return res.json({

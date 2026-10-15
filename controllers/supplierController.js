@@ -340,20 +340,17 @@ const getCustomers = async (req, res) => {
     try {
         const supplierId = req.user.id;
         const result = await pool.query(
-            'SELECT id, name, phone, email, created_at FROM users WHERE role = $1 AND supplier_id = $2 AND is_deleted = FALSE ORDER BY name ASC',
-            ['customer', supplierId]
+            `SELECT u.id, u.name, u.phone, u.email, u.created_at
+             FROM users u
+             INNER JOIN supplier_customers sc ON sc.customer_id = u.id
+             WHERE sc.supplier_id = $1 AND u.is_deleted = FALSE
+             ORDER BY u.name ASC`,
+            [supplierId]
         );
-        res.json({
-            success: true,
-            data: result.rows
-        });
+        res.json({ success: true, data: result.rows });
     } catch (error) {
         console.error('Error fetching customers:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching customers',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: 'Error fetching customers' });
     }
 };
 
@@ -363,10 +360,9 @@ const updateCustomer = async (req, res) => {
         const customerId = parseInt(req.params.id);
         const { name, email } = req.body;
 
-        // Verify this customer belongs to this supplier
         const check = await pool.query(
-            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3 AND is_deleted = FALSE',
-            [customerId, 'customer', supplierId]
+            'SELECT id FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+            [supplierId, customerId]
         );
         if (check.rows.length === 0) {
             return res.status(403).json({ success: false, message: 'You can only edit your own customers' });
@@ -379,7 +375,7 @@ const updateCustomer = async (req, res) => {
         res.json({ success: true, data: result.rows[0] });
     } catch (error) {
         console.error('Error updating customer:', error);
-        res.status(500).json({ success: false, message: 'Error updating customer', error: error.message });
+        res.status(500).json({ success: false, message: 'Error updating customer' });
     }
 };
 
@@ -388,24 +384,23 @@ const removeCustomer = async (req, res) => {
         const supplierId = req.user.id;
         const customerId = parseInt(req.params.id);
 
-        // Verify this customer belongs to this supplier
         const check = await pool.query(
-            'SELECT id FROM users WHERE id = $1 AND role = $2 AND supplier_id = $3 AND is_deleted = FALSE',
-            [customerId, 'customer', supplierId]
+            'SELECT id FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+            [supplierId, customerId]
         );
         if (check.rows.length === 0) {
             return res.status(403).json({ success: false, message: 'You can only remove your own customers' });
         }
 
-        // Unlink (set supplier_id to null) instead of hard delete to preserve order history
+        // Delete only the pivot row — preserves user account and order history
         await pool.query(
-            'UPDATE users SET supplier_id = NULL, updated_at = NOW() WHERE id = $1',
-            [customerId]
+            'DELETE FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+            [supplierId, customerId]
         );
         res.json({ success: true, message: 'Customer removed from your account' });
     } catch (error) {
         console.error('Error removing customer:', error);
-        res.status(500).json({ success: false, message: 'Error removing customer', error: error.message });
+        res.status(500).json({ success: false, message: 'Error removing customer' });
     }
 };
 

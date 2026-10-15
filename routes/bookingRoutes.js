@@ -4,6 +4,7 @@ const {
   calculatePrice,
   createServiceRequest,
   getMyRequests,
+  getMySuppliers,
   getSupplierRequests,
   getPendingRequests,
   getRequestById,
@@ -28,6 +29,7 @@ router.post('/calculate-price', calculatePrice);
 // Customer routes
 router.post('/', authenticate, upload.array('attachments', 10), createServiceRequest);
 router.get('/my-requests', authenticate, getMyRequests);
+router.get('/my-suppliers', authenticate, getMySuppliers);
 router.get('/:id', authenticate, getRequestById);
 router.get('/:id/order-items', authenticate, getOrderItems);
 router.get('/:id/repeat', authenticate, getRepeatOrderData);

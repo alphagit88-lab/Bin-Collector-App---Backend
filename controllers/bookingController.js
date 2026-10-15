@@ -15,6 +15,7 @@ const BinSize = require('../models/BinSize');
 const BinType = require('../models/BinType');
 const fs = require('fs');
 const path = require('path');
+const pool = require('../config/database');
 
 // Calculate price and GST endpoint
 const calculatePrice = async (req, res) => {
@@ -29,7 +30,9 @@ const calculatePrice = async (req, res) => {
       longitude,
       lat,
       lng,
-      booking_id
+      booking_id,
+      supplier_id,
+      supplierId
     } = req.body;
 
     latitude = latitude || lat;
@@ -90,14 +93,25 @@ const calculatePrice = async (req, res) => {
       // Find qualified suppliers to get total_price (same as createServiceRequest)
       let qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
       
+      const requestedSupplierId = supplier_id || supplierId;
+      if (requestedSupplierId) {
+        qualifiedSuppliers = qualifiedSuppliers.filter(s => s.id == requestedSupplierId);
+      }
+
       if (qualifiedSuppliers.length === 0) {
-        splits = await User.findSupplierSplitsForMultipleBins(orderItems, latitude, longitude, location);
-        if (splits && splits.length > 0) {
-          isSplitOrder = true;
-        } else {
+        if (!requestedSupplierId) {
+          splits = await User.findSupplierSplitsForMultipleBins(orderItems, latitude, longitude, location);
+          if (splits && splits.length > 0) {
+            isSplitOrder = true;
+          }
+        }
+
+        if (!isSplitOrder) {
           return res.status(404).json({
             success: false,
-            message: 'The selected bins/qty are not available from any suppliers in your area',
+            message: requestedSupplierId
+              ? 'The selected supplier cannot fulfill this order in your area or does not have these bins available'
+              : 'The selected bins/qty are not available from any suppliers in your area',
           });
         }
       } else {
@@ -375,16 +389,18 @@ const createServiceRequest = async (req, res) => {
       // Step 2: Check if those suppliers have the requested bins available
       qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
 
+      if (supplier_id) {
+        qualifiedSuppliers = qualifiedSuppliers.filter(s => s.id == supplier_id);
+      }
+
       if (qualifiedSuppliers.length === 0) {
         cleanupFiles();
         return res.status(404).json({
           success: false,
-          message: 'The selected bins/qty are not available from any supplier in your area',
+          message: supplier_id
+            ? 'The selected supplier cannot fulfill this order in your area or does not have these bins available'
+            : 'The selected bins/qty are not available from any supplier in your area',
         });
-      }
-
-      if (supplier_id) {
-        qualifiedSuppliers = qualifiedSuppliers.filter(s => s.id == supplier_id);
       }
 
       if (!finalEstimatedPrice) {
@@ -528,7 +544,7 @@ const createServiceRequest = async (req, res) => {
     const serviceRequest = await ServiceRequest.create({
       request_id: requestId,
       customer_id: customerId,
-      supplier_id: supplier_id || null,
+      supplier_id: supplier_id || qualifiedSuppliers?.[0]?.id || null,
       service_category,
       bin_type_id: firstBin ? parseInt(firstBin.bin_type_id) : null,
       bin_size_id: firstBin && firstBin.bin_size_id ? parseInt(firstBin.bin_size_id) : null,
@@ -1745,12 +1761,17 @@ const createSupplierBooking = async (req, res) => {
         phone: customer_phone,
         role: 'customer',
         password: randomPassword,
-        supplierId: supplierId,
       });
       isNewCustomer = true;
       console.log(`Created new customer: ${customer_name} (${customer_phone}) with random password.`);
-      // In a real app, you'd send an SMS with the password here.
     }
+
+    // Link customer to this supplier via pivot table (safe to run every time — upsert)
+    const pool = require('../config/database');
+    await pool.query(
+      'INSERT INTO supplier_customers (supplier_id, customer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [supplierId, customer.id]
+    );
 
     // 2. Prepare Order Items
     if (typeof bins === 'string') {
@@ -2343,11 +2364,37 @@ const updateRequestCustomer = async (req, res) => {
   }
 };
 
+const getMySuppliers = async (req, res) => {
+  try {
+    const customerId = req.user.id;
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.phone, u.email, u.supplier_type
+       FROM users u
+       INNER JOIN supplier_customers sc ON sc.supplier_id = u.id
+       WHERE sc.customer_id = $1 AND u.is_deleted = FALSE AND u.role = 'supplier'
+       ORDER BY u.name ASC`,
+      [customerId]
+    );
+    res.json({
+      success: true,
+      data: { suppliers: result.rows },
+    });
+  } catch (error) {
+    console.error('Error fetching customer suppliers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching your suppliers',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   updateRequestCustomer,
   calculatePrice,
   createServiceRequest,
   getMyRequests,
+  getMySuppliers,
   getSupplierRequests,
   getPendingRequests,
   getRequestById,
