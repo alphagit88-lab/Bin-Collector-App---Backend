@@ -92,7 +92,7 @@ const calculatePrice = async (req, res) => {
 
       // Find qualified suppliers to get total_price (same as createServiceRequest)
       let qualifiedSuppliers = await User.findQualifiedSuppliersForMultipleBins(orderItems, latitude, longitude, location);
-      
+
       const requestedSupplierId = supplier_id || supplierId;
       if (requestedSupplierId) {
         qualifiedSuppliers = qualifiedSuppliers.filter(s => s.id == requestedSupplierId);
@@ -1754,7 +1754,27 @@ const createSupplierBooking = async (req, res) => {
     let customer = await User.findByPhone(customer_phone);
     let isNewCustomer = false;
 
-    if (!customer) {
+    if (customer) {
+      // Security: only allow linking actual customers, not suppliers/admins/drivers
+      if (customer.role !== 'customer') {
+        return res.status(400).json({
+          success: false,
+          message: 'This mobile number is associated with a non-customer account and cannot be used',
+        });
+      }
+    } else {
+      // Block if phone belongs to a soft-deleted account
+      const deletedCheck = await pool.query(
+        'SELECT id FROM users WHERE phone = $1 AND is_deleted = TRUE LIMIT 1',
+        [customer_phone]
+      );
+      if (deletedCheck.rows.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'This customer mobile number cannot be used',
+        });
+      }
+
       const randomPassword = Math.random().toString(36).slice(-8);
       customer = await User.create({
         name: customer_name,
@@ -2331,7 +2351,7 @@ const updateRequestCustomer = async (req, res) => {
         }
       }
     } else {
-       oldAttachments = [];
+      oldAttachments = [];
     }
 
     const newFileUrls = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];

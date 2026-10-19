@@ -40,17 +40,24 @@ class Project {
     return result.rows;
   }
 
-  static async create({ customer_id, name, description }) {
+  static async create({ customer_id, name, description, location, latitude, longitude }) {
     const query = `
-      INSERT INTO projects (customer_id, name, description, created_at, updated_at)
-      VALUES ($1, $2, $3, NOW(), NOW())
+      INSERT INTO projects (customer_id, name, description, location, latitude, longitude, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
       RETURNING *
     `;
-    const result = await pool.query(query, [customer_id, name, description]);
+    const result = await pool.query(query, [
+      customer_id,
+      name,
+      description,
+      location || null,
+      latitude !== undefined && latitude !== null && latitude !== '' ? latitude : null,
+      longitude !== undefined && longitude !== null && longitude !== '' ? longitude : null
+    ]);
     return result.rows[0];
   }
 
-  static async update(id, { name, description }) {
+  static async update(id, { name, description, location, latitude, longitude }) {
     const updates = [];
     const values = [];
     let paramCount = 1;
@@ -62,6 +69,18 @@ class Project {
     if (description !== undefined) {
       updates.push(`description = $${paramCount++}`);
       values.push(description);
+    }
+    if (location !== undefined) {
+      updates.push(`location = $${paramCount++}`);
+      values.push(location || null);
+    }
+    if (latitude !== undefined) {
+      updates.push(`latitude = $${paramCount++}`);
+      values.push(latitude !== null && latitude !== '' ? latitude : null);
+    }
+    if (longitude !== undefined) {
+      updates.push(`longitude = $${paramCount++}`);
+      values.push(longitude !== null && longitude !== '' ? longitude : null);
     }
 
     if (updates.length === 0) return this.findById(id);

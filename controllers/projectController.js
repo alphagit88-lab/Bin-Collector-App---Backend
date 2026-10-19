@@ -56,7 +56,7 @@ const getProjectDetails = async (req, res) => {
 
 const createProject = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, location, latitude, longitude } = req.body;
     const customer_id = req.user.id;
 
     if (!name) {
@@ -66,7 +66,14 @@ const createProject = async (req, res) => {
       });
     }
 
-    const project = await Project.create({ customer_id, name, description });
+    const project = await Project.create({
+      customer_id,
+      name,
+      description,
+      location,
+      latitude,
+      longitude
+    });
 
     res.status(201).json({
       success: true,
@@ -86,7 +93,7 @@ const createProject = async (req, res) => {
 const updateProject = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, location, latitude, longitude } = req.body;
 
     const project = await Project.findById(id);
     if (!project) {
@@ -103,7 +110,13 @@ const updateProject = async (req, res) => {
       });
     }
 
-    const updatedProject = await Project.update(id, { name, description });
+    const updatedProject = await Project.update(id, {
+      name,
+      description,
+      location,
+      latitude,
+      longitude
+    });
 
     res.json({
       success: true,

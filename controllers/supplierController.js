@@ -4,6 +4,7 @@ const ServiceAreaBin = require('../models/ServiceAreaBin');
 const BinSize = require('../models/BinSize');
 const User = require('../models/User');
 const ServiceRequest = require('../models/ServiceRequest');
+const SupplierAvailability = require('../models/SupplierAvailability');
 const { sendPushNotifications } = require('../utils/pushNotification');
 
 const getAvailability = async (req, res) => {
@@ -404,6 +405,115 @@ const removeCustomer = async (req, res) => {
     }
 };
 
+const addCustomer = async (req, res) => {
+    try {
+        const supplierId = req.user.id;
+        const { name, phone, email } = req.body;
+
+        if (!name || !phone) {
+            return res.status(400).json({
+                success: false,
+                message: 'Customer name and mobile number are required',
+            });
+        }
+
+        const trimmedPhone = phone.trim();
+        const trimmedName = name.trim();
+        const trimmedEmail = email && email.trim() ? email.trim() : null;
+
+        // 1. Check if user already exists with this phone
+        let customer = await User.findByPhone(trimmedPhone);
+        let isExisting = false;
+
+        // Block if phone belongs to a soft-deleted account
+        if (!customer) {
+            const deletedCheck = await pool.query(
+                'SELECT id FROM users WHERE phone = $1 AND is_deleted = TRUE LIMIT 1',
+                [trimmedPhone]
+            );
+            if (deletedCheck.rows.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This mobile number was rejected',
+                });
+            }
+        }
+
+        if (customer) {
+            // Security: only allow assigning actual customers, not suppliers/admins/drivers
+            if (customer.role !== 'customer') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This mobile number cannot be added',
+                });
+            }
+
+            isExisting = true;
+            // Check if already linked to this supplier
+            const checkLink = await pool.query(
+                'SELECT id FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+                [supplierId, customer.id]
+            );
+
+            if (checkLink.rows.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This customer is already assigned to your account',
+                });
+            }
+
+            // Link existing customer to this supplier
+            await pool.query(
+                'INSERT INTO supplier_customers (supplier_id, customer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+                [supplierId, customer.id]
+            );
+
+            // Update email if provided and customer didn't have one
+            if (!customer.email && trimmedEmail) {
+                await pool.query('UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2', [trimmedEmail, customer.id]);
+                customer.email = trimmedEmail;
+            }
+        } else {
+            // 2. Create new customer user with random password
+            const randomPassword = Math.random().toString(36).slice(-8);
+            customer = await User.create({
+                name: trimmedName,
+                phone: trimmedPhone,
+                email: trimmedEmail,
+                role: 'customer',
+                password: randomPassword,
+            });
+
+            // Link to supplier
+            await pool.query(
+                'INSERT INTO supplier_customers (supplier_id, customer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+                [supplierId, customer.id]
+            );
+        }
+
+        res.status(201).json({
+            success: true,
+            message: isExisting
+                ? 'Existing customer assigned to your account successfully'
+                : 'Customer created and added to your account successfully',
+            data: {
+                id: customer.id,
+                name: customer.name,
+                phone: customer.phone,
+                email: customer.email,
+                created_at: customer.created_at || new Date(),
+            },
+        });
+    } catch (error) {
+        console.error('Error adding/assigning customer:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error adding customer to account',
+            error: error.message,
+        });
+    }
+};
+
 module.exports = {
     getAvailability,
     updateAvailability,
@@ -417,6 +527,7 @@ module.exports = {
     addDriver,
     assignDriver,
     getCustomers,
+    addCustomer,
     updateCustomer,
     removeCustomer
 };

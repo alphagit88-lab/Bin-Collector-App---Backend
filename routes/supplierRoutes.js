@@ -26,6 +26,7 @@ router.post('/assign-driver', verifyToken, verifyRole(['supplier', 'admin']), su
 
 // Customer Management
 router.get('/customers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.getCustomers);
+router.post('/customers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.addCustomer);
 router.put('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.updateCustomer);
 router.delete('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.removeCustomer);
 
