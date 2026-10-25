@@ -61,14 +61,14 @@ const signup = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { phone, password } = req.body;
+    const { email, phone, password } = req.body;
 
-    // Find user by phone
-    const user = await User.findByPhone(phone);
+    // Find user by phone or email
+    const user = (await User.findByPhone(email || phone)) || (await User.findByEmail(email || phone));
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid phone number or password',
+        message: 'Invalid email, phone number, or password',
       });
     }
 
@@ -77,7 +77,7 @@ const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid phone number or password',
+        message: 'Invalid email, phone number, or password',
       });
     }
 
@@ -234,11 +234,16 @@ const updateProfilePhoto = async (req, res) => {
 
 const changePassword = async (req, res) => {
   try {
-    const { newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
     const userId = req.user.id;
 
-    // TODO: In a real app, we should verify the old password first if provided
-    // For this implementation, we just update to the new password
+    const user = await User.findByIdForAuthentication(userId);
+    if (!user || !(await User.verifyPassword(user, currentPassword))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password is incorrect',
+      });
+    }
 
     // Hash new password
     const hashedPassword = await User.hashPassword(newPassword);

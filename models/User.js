@@ -186,8 +186,33 @@ class User {
   }
 
   static async updatePushToken(id, pushToken) {
-    const query = 'UPDATE users SET push_token = $1, updated_at = NOW() WHERE id = $2 AND is_deleted = FALSE RETURNING id';
-    const result = await pool.query(query, [pushToken, id]);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [pushToken]);
+      await client.query(
+        'UPDATE users SET push_token = NULL, updated_at = NOW() WHERE push_token = $1 AND id <> $2',
+        [pushToken, id]
+      );
+      const result = await client.query(
+        'UPDATE users SET push_token = $1, updated_at = NOW() WHERE id = $2 AND is_deleted = FALSE RETURNING id',
+        [pushToken, id]
+      );
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async findByIdForAuthentication(id) {
+    const result = await pool.query(
+      'SELECT id, password_hash FROM users WHERE id = $1 AND is_deleted = FALSE',
+      [id]
+    );
     return result.rows[0];
   }
 

@@ -6,10 +6,10 @@ const createAdmin = async (req, res) => {
   try {
     const { name, phone, email, password } = req.body;
 
-    if (!password || password.length < 6) {
+    if (!password || password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 6 characters',
+        message: 'Password must be at least 8 characters',
       });
     }
 
@@ -69,10 +69,10 @@ const createUser = async (req, res) => {
       }
     }
 
-    if (!password || password.length < 6) {
+    if (!password || password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 6 characters',
+        message: 'Password must be at least 8 characters',
       });
     }
 
