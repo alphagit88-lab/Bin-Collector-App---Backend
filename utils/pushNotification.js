@@ -3,7 +3,7 @@ const path = require('path');
 
 // Initialize Firebase Admin with the service account file provided by the user
 try {
-    const serviceAccount = require(path.join(__dirname, '..', 'binrental-firebase-adminsdk-fbsvc-8deb8d0cae.json'));
+    const serviceAccount = require(path.join(__dirname, '..', 'bindrop-5003a-firebase-adminsdk-fbsvc-3694e05e52.json'));
 
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
