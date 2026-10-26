@@ -701,7 +701,7 @@ const getSupplierRequests = async (req, res) => {
   try {
     const userId = req.user.id;
     const role = req.user.role;
-    const { status, startDate, endDate, search } = req.query;
+    const { status, startDate, endDate, search, customer, includePending } = req.query;
     const pagination = parsePagination(req.query);
 
     let requests;
