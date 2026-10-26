@@ -108,6 +108,22 @@ const validateForgotPasswordReset = [
   handleValidationErrors,
 ];
 
+const validateAddCustomer = [
+  body('name')
+    .trim()
+    .notEmpty().withMessage('Customer name is required')
+    .isLength({ min: 2, max: 100 }).withMessage('Customer name must be between 2 and 100 characters'),
+  body('phone')
+    .trim()
+    .matches(/^\+1[2-9]\d{2}[2-9]\d{6}$/)
+    .withMessage('Enter +1 followed by 10 numbers, without spaces or dashes.'),
+  body('email')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isEmail().withMessage('Invalid email format'),
+  handleValidationErrors,
+];
+
 module.exports = {
   validateSignup,
   validateLogin,
@@ -116,6 +132,7 @@ module.exports = {
   validateCreatePassword,
   validateForgotPasswordRequest,
   validateForgotPasswordReset,
+  validateAddCustomer,
   handleValidationErrors,
   passwordValidator,
 };

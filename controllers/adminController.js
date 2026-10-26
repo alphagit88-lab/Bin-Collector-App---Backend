@@ -144,12 +144,15 @@ const getUsersByRole = async (req, res) => {
       });
     }
 
-    const users = await User.findAll();
-    const filteredUsers = users.filter(user => user.role === role);
+    const { parsePagination, paginationMeta, extractWindowTotal, stripWindowTotal } = require('../utils/pagination');
+    const pagination = parsePagination(req.query);
+    const rows = await User.findAll({ role, startDate: req.query.startDate, endDate: req.query.endDate, limit: pagination.limit, offset: pagination.offset });
+    const total = extractWindowTotal(rows);
+    const filteredUsers = stripWindowTotal(rows);
     
     res.json({
       success: true,
-      data: { users: filteredUsers },
+      data: { users: filteredUsers, ...(pagination.requested ? { pagination: paginationMeta(pagination.page, pagination.limit, total) } : {}) },
     });
   } catch (error) {
     console.error('Get users by role error:', error);

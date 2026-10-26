@@ -43,6 +43,7 @@ class Invoice {
     const query = `
       SELECT 
         i.*,
+        COUNT(*) OVER() AS total_count,
         p.payout_id AS payout_transaction_id,
         s.name AS supplier_name,
         s.phone AS supplier_phone,
@@ -163,6 +164,8 @@ class Invoice {
       query += ` AND i.payout_id = $${paramCount++}`;
       values.push(filters.payout_id);
     }
+    if (filters.startDate) { query += ` AND i.invoice_date >= $${paramCount++}::date`; values.push(filters.startDate); }
+    if (filters.endDate) { query += ` AND i.invoice_date < ($${paramCount++}::date + INTERVAL '1 day')`; values.push(filters.endDate); }
 
     query += ` ORDER BY i.created_at DESC`;
 
@@ -170,6 +173,7 @@ class Invoice {
       query += ` LIMIT $${paramCount++}`;
       values.push(filters.limit);
     }
+    if (filters.offset) { query += ` OFFSET $${paramCount++}`; values.push(filters.offset); }
 
     const result = await pool.query(query, values);
     return result.rows;

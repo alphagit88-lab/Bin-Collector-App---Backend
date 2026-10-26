@@ -88,9 +88,10 @@ class User {
     return result.rows[0];
   }
 
-  static async findAll() {
-    const query = `
+  static async findAll(filters = {}) {
+    let query = `
       SELECT 
+        COUNT(*) OVER() AS total_count,
         id, 
         name, 
         phone, 
@@ -105,9 +106,16 @@ class User {
         updated_at 
       FROM users
       WHERE is_deleted = FALSE
-      ORDER BY created_at DESC
     `;
-    const result = await pool.query(query);
+    const values = [];
+    let paramCount = 1;
+    if (filters.role) { query += ` AND role = $${paramCount++}`; values.push(filters.role); }
+    if (filters.startDate) { query += ` AND created_at >= $${paramCount++}::date`; values.push(filters.startDate); }
+    if (filters.endDate) { query += ` AND created_at < ($${paramCount++}::date + INTERVAL '1 day')`; values.push(filters.endDate); }
+    query += ` ORDER BY created_at DESC`;
+    if (filters.limit) { query += ` LIMIT $${paramCount++}`; values.push(filters.limit); }
+    if (filters.offset) { query += ` OFFSET $${paramCount++}`; values.push(filters.offset); }
+    const result = await pool.query(query, values);
     return result.rows;
   }
 

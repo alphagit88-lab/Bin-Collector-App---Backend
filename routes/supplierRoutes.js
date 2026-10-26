@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supplierController = require('../controllers/supplierController');
 const { verifyToken, verifyRole, verifyAdmin } = require('../middleware/authMiddleware');
-const { validateCreatePassword } = require('../middleware/validation');
+const { validateCreatePassword, validateAddCustomer } = require('../middleware/validation');
 
 // Get supplier availability
 router.get('/availability', verifyToken, verifyRole(['supplier', 'admin']), supplierController.getAvailability);
@@ -27,7 +27,7 @@ router.post('/assign-driver', verifyToken, verifyRole(['supplier', 'admin']), su
 
 // Customer Management
 router.get('/customers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.getCustomers);
-router.post('/customers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.addCustomer);
+router.post('/customers', verifyToken, verifyRole(['supplier', 'admin']), validateAddCustomer, supplierController.addCustomer);
 router.put('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.updateCustomer);
 router.delete('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.removeCustomer);
 

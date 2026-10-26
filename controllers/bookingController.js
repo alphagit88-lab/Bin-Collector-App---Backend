@@ -8,6 +8,7 @@ const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const { generateRequestId } = require('../utils/requestId');
+const { parsePagination, paginationMeta, extractWindowTotal, stripWindowTotal } = require('../utils/pagination');
 const Bill = require('../models/Bill');
 const Notification = require('../models/Notification');
 const StatusHistory = require('../models/StatusHistory');
@@ -664,13 +665,26 @@ const createServiceRequest = async (req, res) => {
 const getMyRequests = async (req, res) => {
   try {
     const customerId = req.user.id;
-    const { status } = req.query;
+    const { status, startDate, endDate, search, customer, includePending } = req.query;
+    const pagination = parsePagination(req.query);
 
-    const requests = await ServiceRequest.findByCustomer(customerId, { status });
+    const rows = await ServiceRequest.findByCustomer(customerId, { status, startDate, endDate, search, dateField: 'service', limit: pagination.limit, offset: pagination.offset });
+    const total = extractWindowTotal(rows);
+    const requests = stripWindowTotal(rows);
+    let summary;
+    if (pagination.requested) {
+      const summaryResult = await pool.query(
+        `SELECT COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled'))::int AS active,
+                COUNT(*) FILTER (WHERE status = 'completed')::int AS completed
+         FROM service_requests WHERE customer_id = $1`,
+        [customerId]
+      );
+      summary = summaryResult.rows[0];
+    }
 
     res.json({
       success: true,
-      data: { requests },
+      data: { requests, ...(pagination.requested ? { pagination: paginationMeta(pagination.page, pagination.limit, total), summary } : {}) },
     });
   } catch (error) {
     console.error('Get my requests error:', error);
@@ -687,14 +701,17 @@ const getSupplierRequests = async (req, res) => {
   try {
     const userId = req.user.id;
     const role = req.user.role;
-    const { status } = req.query;
+    const { status, startDate, endDate, search } = req.query;
+    const pagination = parsePagination(req.query);
 
     let requests;
     if (role === 'driver') {
-      requests = await ServiceRequest.findAll({ driver_id: userId, status });
+      requests = await ServiceRequest.findAll({ driver_id: userId, status, startDate, endDate, search, customer, limit: pagination.limit, offset: pagination.offset });
     } else {
-      requests = await ServiceRequest.findBySupplier(userId, { status });
+      requests = await ServiceRequest.findBySupplier(userId, { status, startDate, endDate, search, customer, includePending: includePending === 'true', limit: pagination.limit, offset: pagination.offset });
     }
+    const total = extractWindowTotal(requests);
+    requests = stripWindowTotal(requests);
 
     // Parse additional_images for each request
     const parsedRequests = requests.map(request => {
@@ -712,10 +729,19 @@ const getSupplierRequests = async (req, res) => {
 
       return parsedRequest;
     });
+    let filterOptions;
+    if (pagination.requested && role !== 'driver') {
+      const customerResult = await pool.query(
+        `SELECT DISTINCT c.name FROM service_requests sr JOIN users c ON c.id = sr.customer_id
+         WHERE sr.supplier_id = $1 AND sr.status NOT IN ('cancelled', 'pending') ORDER BY c.name`,
+        [userId]
+      );
+      filterOptions = { customers: customerResult.rows.map(row => row.name) };
+    }
 
     res.json({
       success: true,
-      data: { requests: parsedRequests },
+      data: { requests: parsedRequests, ...(pagination.requested ? { pagination: paginationMeta(pagination.page, pagination.limit, total), filterOptions } : {}) },
     });
   } catch (error) {
     console.error('Get jobs error:', error);
@@ -1640,17 +1666,23 @@ const cancelRequest = async (req, res) => {
 // Admin: Get all service requests
 const getAllServiceRequests = async (req, res) => {
   try {
-    const { status, customer_id, supplier_id, limit } = req.query;
+    const { status, customer_id, supplier_id, startDate, endDate } = req.query;
+    const pagination = parsePagination(req.query);
 
     const requests = await ServiceRequest.findAll({
       status,
       customer_id,
       supplier_id,
-      limit: limit ? parseInt(limit) : undefined,
+      startDate,
+      endDate,
+      limit: pagination.limit,
+      offset: pagination.offset,
     });
+    const total = extractWindowTotal(requests);
+    const cleanRequests = stripWindowTotal(requests);
 
     // Parse additional_images for each request
-    const parsedRequests = requests.map(request => {
+    const parsedRequests = cleanRequests.map(request => {
       let parsedRequest = { ...request };
       if (parsedRequest.additional_images && typeof parsedRequest.additional_images === 'string') {
         try {
@@ -1666,7 +1698,7 @@ const getAllServiceRequests = async (req, res) => {
 
     res.json({
       success: true,
-      data: { requests: parsedRequests },
+      data: { requests: parsedRequests, ...(pagination.requested ? { pagination: paginationMeta(pagination.page, pagination.limit, total) } : {}) },
     });
   } catch (error) {
     console.error('Get all service requests error:', error);

@@ -1,23 +1,30 @@
 const Invoice = require('../models/Invoice');
 const SupplierWallet = require('../models/SupplierWallet');
+const { parsePagination, paginationMeta, extractWindowTotal, stripWindowTotal } = require('../utils/pagination');
 
 // Get all invoices (admin)
 const getAllInvoices = async (req, res) => {
   try {
-    const { payment_status, payment_method, customer_id, supplier_id, limit } = req.query;
+    const { payment_status, payment_method, customer_id, supplier_id, startDate, endDate } = req.query;
+    const pagination = parsePagination(req.query);
 
     const filters = {};
     if (payment_status) filters.payment_status = payment_status;
     if (payment_method) filters.payment_method = payment_method;
     if (customer_id) filters.customer_id = parseInt(customer_id);
     if (supplier_id) filters.supplier_id = parseInt(supplier_id);
-    if (limit) filters.limit = parseInt(limit);
+    filters.startDate = startDate;
+    filters.endDate = endDate;
+    filters.limit = pagination.limit;
+    filters.offset = pagination.offset;
 
-    const invoices = await Invoice.findAll(filters);
+    const rows = await Invoice.findAll(filters);
+    const total = extractWindowTotal(rows);
+    const invoices = stripWindowTotal(rows);
 
     res.json({
       success: true,
-      data: { invoices },
+      data: { invoices, ...(pagination.requested ? { pagination: paginationMeta(pagination.page, pagination.limit, total) } : {}) },
     });
   } catch (error) {
     console.error('Get all invoices error:', error);

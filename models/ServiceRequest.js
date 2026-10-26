@@ -221,6 +221,7 @@ class ServiceRequest {
     let query = `
       SELECT 
         sr.*,
+        COUNT(*) OVER() AS total_count,
         bt.name AS bin_type_name,
         bs.size AS bin_size,
         pb.bin_code,
@@ -246,17 +247,45 @@ class ServiceRequest {
     let paramCount = 2;
 
     if (filters.status) {
-      query += ` AND sr.status = $${paramCount++}`;
-      values.push(filters.status);
+      if (filters.status === 'inProgress') {
+        query += ` AND sr.status = ANY($${paramCount++}::text[])`;
+        values.push(['on_delivery', 'delivered', 'pickup']);
+      } else {
+        query += ` AND sr.status = $${paramCount++}`;
+        values.push(filters.status);
+      }
     } else {
       query += ` AND sr.status != 'cancelled'`;
     }
 
+    if (filters.startDate) {
+      query += filters.dateField === 'service'
+        ? ` AND sr.start_date >= $${paramCount++}::date`
+        : ` AND sr.created_at >= $${paramCount++}::date`;
+      values.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      query += filters.dateField === 'service'
+        ? ` AND sr.end_date < ($${paramCount++}::date + INTERVAL '1 day')`
+        : ` AND sr.created_at < ($${paramCount++}::date + INTERVAL '1 day')`;
+      values.push(filters.endDate);
+    }
+    if (filters.search) {
+      query += ` AND (sr.request_id ILIKE $${paramCount} OR sr.location ILIKE $${paramCount} OR bt.name ILIKE $${paramCount}
+        OR EXISTS (SELECT 1 FROM service_categories sc WHERE sc.name ILIKE $${paramCount}
+          AND sc.id = ANY(ARRAY(SELECT jsonb_array_elements_text(COALESCE(sr.selected_services, '[]'::jsonb))::int))))`;
+      values.push(`%${filters.search}%`);
+      paramCount++;
+    }
     query += ` ORDER BY sr.created_at DESC`;
 
     if (filters.limit) {
       query += ` LIMIT $${paramCount++}`;
       values.push(filters.limit);
+    }
+    if (filters.offset) {
+      query += ` OFFSET $${paramCount++}`;
+      values.push(filters.offset);
     }
 
     const result = await pool.query(query, values);
@@ -282,6 +311,7 @@ class ServiceRequest {
     let query = `
       SELECT 
         sr.*,
+        COUNT(*) OVER() AS total_count,
         bt.name AS bin_type_name,
         bs.size AS bin_size,
         c.name AS customer_name,
@@ -308,16 +338,62 @@ class ServiceRequest {
       LEFT JOIN physical_bins pb ON sr.bin_id = pb.id
       LEFT JOIN invoices i ON sr.id = i.service_request_id
       LEFT JOIN projects p ON sr.project_id = p.id
-      WHERE sr.supplier_id = $1
     `;
     const values = [supplierId];
     let paramCount = 2;
 
+    if (filters.includePending) {
+      query += ` WHERE (
+        sr.supplier_id = $1
+        OR (
+          sr.status = 'pending' AND sr.supplier_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM service_areas sa
+            WHERE sa.supplier_id = $1
+            AND (
+              (sr.latitude IS NOT NULL AND sr.longitude IS NOT NULL AND sa.latitude IS NOT NULL AND sa.longitude IS NOT NULL
+               AND (6371 * acos(cos(radians(sr.latitude)) * cos(radians(sa.latitude)) * cos(radians(sa.longitude) - radians(sr.longitude)) + sin(radians(sr.latitude)) * sin(radians(sa.latitude)))) <= sa.area_radius_km)
+              OR ((sr.latitude IS NULL OR sr.longitude IS NULL OR sa.latitude IS NULL OR sa.longitude IS NULL) AND sr.location ILIKE '%' || sa.city || '%')
+            )
+          )
+        )
+      )`;
+    } else {
+      query += ` WHERE sr.supplier_id = $1`;
+    }
+
     if (filters.status) {
-      query += ` AND sr.status = $${paramCount++}`;
-      values.push(filters.status);
+      if (filters.status === 'inProgress') {
+        query += ` AND sr.status = ANY($${paramCount++}::text[])`;
+        values.push(['on_delivery', 'delivered', 'pickup']);
+      } else {
+        query += ` AND sr.status = $${paramCount++}`;
+        values.push(filters.status);
+      }
+    } else if (filters.includePending) {
+      query += ` AND sr.status != 'cancelled'`;
     } else {
       query += ` AND sr.status NOT IN ('cancelled', 'pending')`;
+    }
+
+    if (filters.startDate) {
+      query += ` AND sr.start_date >= $${paramCount++}::date`;
+      values.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      query += ` AND sr.end_date < ($${paramCount++}::date + INTERVAL '1 day')`;
+      values.push(filters.endDate);
+    }
+    if (filters.search) {
+      query += ` AND (sr.request_id ILIKE $${paramCount} OR sr.location ILIKE $${paramCount} OR c.name ILIKE $${paramCount} OR bt.name ILIKE $${paramCount}
+        OR EXISTS (SELECT 1 FROM service_categories sc WHERE sc.name ILIKE $${paramCount}
+          AND sc.id = ANY(ARRAY(SELECT jsonb_array_elements_text(COALESCE(sr.selected_services, '[]'::jsonb))::int))))`;
+      values.push(`%${filters.search}%`);
+      paramCount++;
+    }
+    if (filters.customer) {
+      query += ` AND c.name = $${paramCount++}`;
+      values.push(filters.customer);
     }
 
     query += ` ORDER BY sr.created_at DESC`;
@@ -325,6 +401,10 @@ class ServiceRequest {
     if (filters.limit) {
       query += ` LIMIT $${paramCount++}`;
       values.push(filters.limit);
+    }
+    if (filters.offset) {
+      query += ` OFFSET $${paramCount++}`;
+      values.push(filters.offset);
     }
 
     const result = await pool.query(query, values);
@@ -502,6 +582,7 @@ class ServiceRequest {
     let query = `
       SELECT 
         sr.*,
+        COUNT(*) OVER() AS total_count,
         bt.name AS bin_type_name,
         bs.size AS bin_size,
         c.name AS customer_name,
@@ -561,11 +642,31 @@ class ServiceRequest {
       values.push(filters.service_category);
     }
 
+    if (filters.startDate) {
+      query += ` AND sr.start_date >= $${paramCount++}::date`;
+      values.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      query += ` AND sr.end_date < ($${paramCount++}::date + INTERVAL '1 day')`;
+      values.push(filters.endDate);
+    }
+    if (filters.search) {
+      query += ` AND (sr.request_id ILIKE $${paramCount} OR sr.location ILIKE $${paramCount} OR c.name ILIKE $${paramCount} OR bt.name ILIKE $${paramCount}
+        OR EXISTS (SELECT 1 FROM service_categories sc WHERE sc.name ILIKE $${paramCount}
+          AND sc.id = ANY(ARRAY(SELECT jsonb_array_elements_text(COALESCE(sr.selected_services, '[]'::jsonb))::int))))`;
+      values.push(`%${filters.search}%`);
+      paramCount++;
+    }
+
     query += ` ORDER BY sr.created_at DESC`;
 
     if (filters.limit) {
       query += ` LIMIT $${paramCount++}`;
       values.push(filters.limit);
+    }
+    if (filters.offset) {
+      query += ` OFFSET $${paramCount++}`;
+      values.push(filters.offset);
     }
 
     const result = await pool.query(query, values);
