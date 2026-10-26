@@ -2391,7 +2391,10 @@ const getMySuppliers = async (req, res) => {
       `SELECT u.id, u.name, u.phone, u.email, u.supplier_type
        FROM users u
        INNER JOIN supplier_customers sc ON sc.supplier_id = u.id
-       WHERE sc.customer_id = $1 AND u.is_deleted = FALSE AND u.role = 'supplier'
+       WHERE sc.customer_id = $1
+         AND u.is_deleted = FALSE
+         AND u.role = 'supplier'
+         AND u.supplier_type IN ('commercial', 'commercial_residential')
        ORDER BY u.name ASC`,
       [customerId]
     );

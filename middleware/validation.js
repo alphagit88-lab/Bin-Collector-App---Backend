@@ -88,12 +88,34 @@ const validateCreatePassword = [
   handleValidationErrors,
 ];
 
+const validateForgotPasswordRequest = [
+  body('identifier')
+    .trim()
+    .notEmpty().withMessage('Email or phone number is required')
+    .isLength({ max: 254 }).withMessage('Email or phone number is too long'),
+  handleValidationErrors,
+];
+
+const validateForgotPasswordReset = [
+  body('identifier')
+    .trim()
+    .notEmpty().withMessage('Email or phone number is required')
+    .isLength({ max: 254 }).withMessage('Email or phone number is too long'),
+  body('otp')
+    .trim()
+    .matches(/^\d{6}$/).withMessage('OTP must contain exactly 6 numbers'),
+  passwordValidator('newPassword'),
+  handleValidationErrors,
+];
+
 module.exports = {
   validateSignup,
   validateLogin,
   validateUpdateProfile,
   validateChangePassword,
   validateCreatePassword,
+  validateForgotPasswordRequest,
+  validateForgotPasswordReset,
   handleValidationErrors,
   passwordValidator,
 };
