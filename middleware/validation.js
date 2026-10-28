@@ -1,5 +1,18 @@
 const { body, validationResult } = require('express-validator');
 
+const CANADIAN_PHONE_PATTERN = /^\+1[2-9]\d{2}[2-9]\d{6}$/;
+const CANADIAN_PHONE_MESSAGE = 'Enter +1 followed by 10 numbers, without spaces or dashes.';
+
+const canadianPhoneValidator = (field, { optional = false } = {}) => {
+  let validator = body(field);
+  if (optional) {
+    validator = validator.optional({ values: 'falsy' });
+  }
+  return validator
+    .notEmpty().withMessage('Phone number is required')
+    .matches(CANADIAN_PHONE_PATTERN).withMessage(CANADIAN_PHONE_MESSAGE);
+};
+
 const passwordValidator = (field) =>
   body(field)
     .customSanitizer((value) => typeof value === 'string' ? value.trim() : value)
@@ -26,11 +39,7 @@ const validateSignup = [
     .trim()
     .notEmpty().withMessage('Name is required')
     .isLength({ min: 2, max: 100 }).withMessage('Name must be between 2 and 100 characters'),
-  body('phone')
-    .trim()
-    .notEmpty().withMessage('Phone number is required')
-    .matches(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/)
-    .withMessage('Invalid phone number format'),
+  canadianPhoneValidator('phone'),
   body('email')
     .optional()
     .isEmail().withMessage('Invalid email format'),
@@ -69,6 +78,7 @@ const validateLogin = [
 
 
 const validateUpdateProfile = [
+  canadianPhoneValidator('phone', { optional: true }),
   body('email')
     .optional()
     .isEmail().withMessage('Invalid email format'),
@@ -85,6 +95,27 @@ const validateChangePassword = [
 
 const validateCreatePassword = [
   passwordValidator('password'),
+  handleValidationErrors,
+];
+
+const validateCreateUser = [
+  canadianPhoneValidator('phone'),
+  passwordValidator('password'),
+  handleValidationErrors,
+];
+
+const validateCreateBooking = [
+  canadianPhoneValidator('contact_number'),
+  handleValidationErrors,
+];
+
+const validateUpdateBooking = [
+  canadianPhoneValidator('contact_number', { optional: true }),
+  handleValidationErrors,
+];
+
+const validateSupplierCreateBooking = [
+  canadianPhoneValidator('customer_phone'),
   handleValidationErrors,
 ];
 
@@ -113,10 +144,7 @@ const validateAddCustomer = [
     .trim()
     .notEmpty().withMessage('Customer name is required')
     .isLength({ min: 2, max: 100 }).withMessage('Customer name must be between 2 and 100 characters'),
-  body('phone')
-    .trim()
-    .matches(/^\+1[2-9]\d{2}[2-9]\d{6}$/)
-    .withMessage('Enter +1 followed by 10 numbers, without spaces or dashes.'),
+  canadianPhoneValidator('phone'),
   body('email')
     .optional({ values: 'falsy' })
     .trim()
@@ -130,9 +158,14 @@ module.exports = {
   validateUpdateProfile,
   validateChangePassword,
   validateCreatePassword,
+  validateCreateUser,
+  validateCreateBooking,
+  validateUpdateBooking,
+  validateSupplierCreateBooking,
   validateForgotPasswordRequest,
   validateForgotPasswordReset,
   validateAddCustomer,
   handleValidationErrors,
   passwordValidator,
+  canadianPhoneValidator,
 };

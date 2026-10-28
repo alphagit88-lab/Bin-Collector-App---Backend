@@ -6,6 +6,7 @@ const User = require('../models/User');
 const ServiceRequest = require('../models/ServiceRequest');
 const SupplierAvailability = require('../models/SupplierAvailability');
 const { sendPushNotifications } = require('../utils/pushNotification');
+const { sendEmailConflict } = require('../utils/emailConflict');
 
 const getAvailability = async (req, res) => {
     try {
@@ -180,6 +181,8 @@ const addDriver = async (req, res) => {
             });
         }
 
+        await User.assertEmailAvailable(email);
+
         const driver = await User.create({
             name,
             phone,
@@ -195,6 +198,7 @@ const addDriver = async (req, res) => {
             message: 'Driver added successfully'
         });
     } catch (error) {
+        if (sendEmailConflict(res, error)) return;
         console.error('Add driver error:', error);
         res.status(500).json({
             success: false,
@@ -369,12 +373,10 @@ const updateCustomer = async (req, res) => {
             return res.status(403).json({ success: false, message: 'You can only edit your own customers' });
         }
 
-        const result = await pool.query(
-            'UPDATE users SET name = $1, email = $2, updated_at = NOW() WHERE id = $3 RETURNING id, name, phone, email, created_at',
-            [name, email || null, customerId]
-        );
-        res.json({ success: true, data: result.rows[0] });
+        const updatedCustomer = await User.update(customerId, { name, email });
+        res.json({ success: true, data: updatedCustomer });
     } catch (error) {
+        if (sendEmailConflict(res, error)) return;
         console.error('Error updating customer:', error);
         res.status(500).json({ success: false, message: 'Error updating customer' });
     }
@@ -419,11 +421,18 @@ const addCustomer = async (req, res) => {
 
         const trimmedPhone = phone.trim();
         const trimmedName = name.trim();
-        const trimmedEmail = email && email.trim() ? email.trim() : null;
+        const trimmedEmail = User.normalizeEmail(email);
 
         // 1. Check if user already exists with this phone
         let customer = await User.findByPhone(trimmedPhone);
         let isExisting = false;
+
+        if (trimmedEmail) {
+            const emailOwner = await User.findByEmail(trimmedEmail);
+            if (emailOwner && (!customer || emailOwner.id !== customer.id)) {
+                throw User.emailConflictError();
+            }
+        }
 
         // Block if phone belongs to a soft-deleted account
         if (!customer) {
@@ -470,8 +479,7 @@ const addCustomer = async (req, res) => {
 
             // Update email if provided and customer didn't have one
             if (!customer.email && trimmedEmail) {
-                await pool.query('UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2', [trimmedEmail, customer.id]);
-                customer.email = trimmedEmail;
+                customer.email = await User.updateEmailIfAvailable(customer.id, trimmedEmail);
             }
         } else {
             // 2. Create new customer user with random password
@@ -505,6 +513,7 @@ const addCustomer = async (req, res) => {
             },
         });
     } catch (error) {
+        if (sendEmailConflict(res, error)) return;
         console.error('Error adding/assigning customer:', error);
         res.status(500).json({
             success: false,

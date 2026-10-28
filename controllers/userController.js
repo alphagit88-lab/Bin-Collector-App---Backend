@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { sendEmailConflict } = require('../utils/emailConflict');
 
 const getAllUsers = async (req, res) => {
   try {
@@ -63,6 +64,7 @@ const updateUser = async (req, res) => {
       data: { user },
     });
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Update user error:', error);
     res.status(500).json({
       success: false,

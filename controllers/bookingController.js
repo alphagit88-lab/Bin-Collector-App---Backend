@@ -909,6 +909,7 @@ const acceptRequest = async (req, res) => {
     }
 
     const updatedRequest = await ServiceRequest.findById(id);
+    const acceptanceMessage = `Your request #${updatedRequest.request_id} has been accepted by a supplier.`;
 
     // NOTE: We do NOT mark online payments as paid here.
     // Stripe payment success will be handled via webhook and will:
@@ -919,8 +920,6 @@ const acceptRequest = async (req, res) => {
     // Notify customer
     const io = req.app.get('io');
     if (io) {
-      const msg = `Your request #${updatedRequest.request_id} has been accepted by a supplier.`;
-
       io.to(`customer_${request.customer_id}`).emit('request_accepted', {
         request: updatedRequest,
       });
@@ -929,7 +928,7 @@ const acceptRequest = async (req, res) => {
       Notification.create({
         userId: request.customer_id,
         title: 'Request Accepted',
-        message: msg,
+        message: acceptanceMessage,
         type: 'order',
         relatedId: updatedRequest.id
       }).catch(err => console.error('DB Notification error:', err));
@@ -939,6 +938,19 @@ const acceptRequest = async (req, res) => {
         request: updatedRequest,
         status: 'accepted'
       });
+    }
+
+    if (updatedRequest.customer_push_token) {
+      sendPushNotifications(
+        updatedRequest.customer_push_token,
+        'Request Accepted',
+        acceptanceMessage,
+        {
+          requestId: updatedRequest.id,
+          status: updatedRequest.status,
+          type: 'order'
+        }
+      ).catch(err => console.error('Push notification error:', err));
     }
 
     res.json({
@@ -1623,18 +1635,18 @@ const cancelRequest = async (req, res) => {
     }
 
     const updatedRequest = await ServiceRequest.findById(id);
+    let cancelActor = 'customer';
+    if (isAdmin) cancelActor = 'admin';
+    else if (isSupplier) cancelActor = 'supplier';
+    const cancellationMessage = `Booking #${updatedRequest.request_id} has been cancelled by ${cancelActor}`;
 
     // Notify supplier if assigned
     const io = req.app.get('io');
     if (io && request.supplier_id) {
-      let cancelActor = 'customer';
-      if (isAdmin) cancelActor = 'admin';
-      else if (isSupplier) cancelActor = 'supplier';
-      const msg = `Booking #${updatedRequest.request_id} has been cancelled by ${cancelActor}`;
       io.to(`supplier_${request.supplier_id}`).emit('status_update', {
         booking_id: updatedRequest.id,
         status: updatedRequest.status,
-        message: msg,
+        message: cancellationMessage,
         request: updatedRequest,
       });
 
@@ -1642,10 +1654,23 @@ const cancelRequest = async (req, res) => {
       Notification.create({
         userId: request.supplier_id,
         title: 'Booking Cancelled',
-        message: msg,
+        message: cancellationMessage,
         type: 'status_update',
         relatedId: updatedRequest.id
       }).catch(err => console.error('DB Notification error:', err));
+    }
+
+    if (request.supplier_id && updatedRequest.supplier_push_token) {
+      sendPushNotifications(
+        updatedRequest.supplier_push_token,
+        'Booking Cancelled',
+        cancellationMessage,
+        {
+          requestId: updatedRequest.id,
+          status: updatedRequest.status,
+          type: 'status_update'
+        }
+      ).catch(err => console.error('Push notification error:', err));
     }
 
     res.json({

@@ -14,14 +14,14 @@ const {
   updateBinFinalPrice,
 } = require('../controllers/adminController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
-const { validateCreatePassword } = require('../middleware/validation');
+const { validateCreateUser } = require('../middleware/validation');
 
 // All admin routes require authentication and admin role
 router.use(authenticate);
 router.use(requireAdmin);
 
-router.post('/', validateCreatePassword, createAdmin);
-router.post('/users', validateCreatePassword, createUser);
+router.post('/', validateCreateUser, createAdmin);
+router.post('/users', validateCreateUser, createUser);
 router.get('/', getAllAdmins);
 router.get('/users/:role', getUsersByRole);
 router.put('/:id', updateAdmin);

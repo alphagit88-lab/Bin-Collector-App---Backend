@@ -2,8 +2,38 @@ const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 class User {
+  static normalizeEmail(email) {
+    if (typeof email !== 'string') return null;
+    const normalized = email.trim().toLowerCase();
+    return normalized || null;
+  }
+
+  static emailConflictError() {
+    const error = new Error('This email address cannot be used');
+    error.code = 'EMAIL_ALREADY_EXISTS';
+    return error;
+  }
+
+  static async assertEmailAvailable(email, excludeUserId = null, client = pool) {
+    const normalizedEmail = this.normalizeEmail(email);
+    if (!normalizedEmail) return null;
+
+    const values = [normalizedEmail];
+    let query = `SELECT id FROM users WHERE LOWER(email) = $1`;
+    if (excludeUserId) {
+      values.push(excludeUserId);
+      query += ` AND id != $2`;
+    }
+    query += ` LIMIT 1`;
+
+    const result = await client.query(query, values);
+    if (result.rows.length > 0) throw this.emailConflictError();
+    return normalizedEmail;
+  }
+
   static async create({ name, phone, email, role, password, supplierType, supplierId, canViewBilling }) {
     const hashedPassword = await bcrypt.hash(password, 10);
+    const normalizedEmail = this.normalizeEmail(email);
     const supplier_type = role === 'supplier' ? (supplierType || null) : null;
     const supplier_id = role === 'driver' ? (supplierId || null) : null;
     const can_view_billing = canViewBilling === true ? true : false;
@@ -12,9 +42,23 @@ class User {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
       RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
-    const values = [name, phone, email || null, role, supplier_type, supplier_id, hashedPassword, null, can_view_billing];
-    const result = await pool.query(query, values);
-    return result.rows[0];
+    const values = [name, phone, normalizedEmail, role, supplier_type, supplier_id, hashedPassword, null, can_view_billing];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (normalizedEmail) {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`user-email:${normalizedEmail}`]);
+        await this.assertEmailAvailable(normalizedEmail, null, client);
+      }
+      const result = await client.query(query, values);
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async findByPhone(phone) {
@@ -42,6 +86,8 @@ class User {
   }
 
   static async findByEmail(email) {
+    const normalizedEmail = this.normalizeEmail(email);
+    if (!normalizedEmail) return undefined;
     const query = `
       SELECT
         id,
@@ -59,10 +105,30 @@ class User {
         created_at,
         updated_at
       FROM users
-      WHERE email = $1 AND is_deleted = FALSE
+      WHERE LOWER(email) = $1 AND is_deleted = FALSE
     `;
-    const result = await pool.query(query, [email]);
+    const result = await pool.query(query, [normalizedEmail]);
     return result.rows[0];
+  }
+
+  static async updateEmailIfAvailable(id, email) {
+    const normalizedEmail = this.normalizeEmail(email);
+    if (!normalizedEmail) return null;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`user-email:${normalizedEmail}`]);
+      await this.assertEmailAvailable(normalizedEmail, id, client);
+      await client.query('UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2', [normalizedEmail, id]);
+      await client.query('COMMIT');
+      return normalizedEmail;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async findById(id) {
@@ -149,7 +215,7 @@ class User {
     }
     if (email !== undefined) {
       updates.push(`email = $${paramCount++}`);
-      values.push(email || null);
+      values.push(this.normalizeEmail(email));
     }
     if (phone !== undefined) {
       updates.push(`phone = $${paramCount++}`);
@@ -189,8 +255,25 @@ class User {
       WHERE id = $${paramCount} AND is_deleted = FALSE
       RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", created_at, updated_at
     `;
-    const result = await pool.query(query, values);
-    return result.rows[0];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (email !== undefined) {
+        const normalizedEmail = this.normalizeEmail(email);
+        if (normalizedEmail) {
+          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`user-email:${normalizedEmail}`]);
+          await this.assertEmailAvailable(normalizedEmail, id, client);
+        }
+      }
+      const result = await client.query(query, values);
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async updatePushToken(id, pushToken) {

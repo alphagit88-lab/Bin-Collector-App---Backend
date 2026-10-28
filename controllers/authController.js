@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const jwtConfig = require('../config/jwt');
 const pool = require('../config/database');
 const crypto = require('crypto');
+const { sendEmailConflict } = require('../utils/emailConflict');
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_RESEND_SECONDS = 30;
@@ -42,6 +43,8 @@ const signup = async (req, res) => {
       });
     }
 
+    await User.assertEmailAvailable(email);
+
     // Create user
     const user = await User.create({ name, phone, email, role, password, supplierType });
 
@@ -69,6 +72,7 @@ const signup = async (req, res) => {
       },
     });
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Signup error:', error);
     res.status(500).json({
       success: false,
@@ -322,16 +326,7 @@ const updateProfile = async (req, res) => {
       }
     }
 
-    // Validate email uniqueness if provided
-    if (email) {
-      const existingEmail = await User.findByEmail(email);
-      if (existingEmail && existingEmail.id !== userId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email address is already in use by another account',
-        });
-      }
-    }
+    await User.assertEmailAvailable(email, userId);
 
     const user = await User.update(userId, { name, email, phone });
 
@@ -348,6 +343,7 @@ const updateProfile = async (req, res) => {
       data: { user },
     });
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Update profile error:', error);
     res.status(500).json({
       success: false,

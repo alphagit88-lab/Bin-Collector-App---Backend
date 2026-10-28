@@ -1,5 +1,7 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const User = require('../models/User');
+const { sendPushNotifications } = require('../utils/pushNotification');
 
 exports.getConversations = async (req, res) => {
   try {
@@ -93,6 +95,19 @@ exports.sendMessage = async (req, res) => {
       type: 'message',
       relatedId: conversationId
     }).catch(err => console.error('DB Notification error:', err));
+
+    const recipient = await User.findById(recipientId);
+    if (recipient?.pushToken) {
+      sendPushNotifications(
+        recipient.pushToken,
+        'New Message',
+        messageText || 'You received a new message',
+        {
+          type: 'message',
+          conversationId
+        }
+      ).catch(err => console.error('Push notification error:', err));
+    }
 
     res.json({
       success: true,

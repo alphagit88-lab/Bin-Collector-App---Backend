@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
@@ -64,7 +65,29 @@ app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static('uploads'));
+const uploadsDirectory = path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(uploadsDirectory));
+app.use('/uploads', (req, res) => {
+  const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']);
+  const isImage = imageExtensions.has(path.extname(req.path).toLowerCase());
+
+  res.status(404).set('Cache-Control', 'no-store');
+  if (isImage) {
+    res.type('image/svg+xml').send(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">' +
+      '<rect width="640" height="360" fill="#f3f4f6"/>' +
+      '<text x="320" y="180" text-anchor="middle" dominant-baseline="middle" fill="#6b7280" font-family="Arial,sans-serif" font-size="24">Attachment unavailable</text>' +
+      '</svg>'
+    );
+    return;
+  }
+
+  res.type('html').send(
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>Attachment unavailable</title></head><body style="font-family:Arial,sans-serif;text-align:center;padding:4rem;color:#374151">' +
+    '<h1>Attachment unavailable</h1><p>This file no longer exists or could not be found.</p></body></html>'
+  );
+});
 
 // Health check route
 app.get('/api/health', (req, res) => {

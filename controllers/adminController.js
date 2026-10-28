@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const ServiceAreaBin = require('../models/ServiceAreaBin');
+const { sendEmailConflict } = require('../utils/emailConflict');
 
 // Create admin user (only existing admins can do this)
 const createAdmin = async (req, res) => {
@@ -22,6 +23,8 @@ const createAdmin = async (req, res) => {
       });
     }
 
+    await User.assertEmailAvailable(email);
+
     // Create admin user
     const user = await User.create({ 
       name, 
@@ -38,6 +41,7 @@ const createAdmin = async (req, res) => {
       data: { user },
     });
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Create admin error:', error);
     res.status(500).json({
       success: false,
@@ -85,6 +89,8 @@ const createUser = async (req, res) => {
       });
     }
 
+    await User.assertEmailAvailable(email);
+
     // Create user
     const user = await User.create({ 
       name, 
@@ -103,6 +109,7 @@ const createUser = async (req, res) => {
       data: { user },
     });
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Create user error:', error);
     res.status(500).json({
       success: false,
@@ -202,6 +209,7 @@ const updateAdmin = async (req, res) => {
       data: { user: updatedUser },
     });
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Update admin error:', error);
     res.status(500).json({
       success: false,
@@ -233,6 +241,7 @@ const updateUser = async (req, res) => {
       data: { user: updatedUser },
     });
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Update user error:', error);
     res.status(500).json({
       success: false,
