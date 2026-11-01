@@ -12,7 +12,7 @@ const requiredEnvironmentVariables = [
 let transporter;
 
 const getEmailLogoUrl = () => process.env.EMAIL_LOGO_URL
-  || `${(process.env.FRONTEND_URL || 'https://app.bindrop.ai').replace(/\/$/, '')}/logo-bd.png`;
+  || 'https://app.bindrop.ai/logo-bd.png';
 
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
