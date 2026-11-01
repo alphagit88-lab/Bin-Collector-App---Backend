@@ -7,6 +7,7 @@ const ServiceRequest = require('../models/ServiceRequest');
 const SupplierAvailability = require('../models/SupplierAvailability');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const { sendEmailConflict } = require('../utils/emailConflict');
+const { sendCustomerCreatedBySupplierEmail } = require('../utils/emailService');
 
 const getAvailability = async (req, res) => {
     try {
@@ -497,6 +498,13 @@ const addCustomer = async (req, res) => {
                 'INSERT INTO supplier_customers (supplier_id, customer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
                 [supplierId, customer.id]
             );
+
+            if (customer.email) {
+                sendCustomerCreatedBySupplierEmail({
+                    to: customer.email,
+                    name: customer.name,
+                }).catch(error => console.error('Customer welcome email failed:', error.message));
+            }
         }
 
         res.status(201).json({

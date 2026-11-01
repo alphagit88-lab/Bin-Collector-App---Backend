@@ -17,6 +17,8 @@ const BinType = require('../models/BinType');
 const fs = require('fs');
 const path = require('path');
 const pool = require('../config/database');
+const { sendEmailConflict } = require('../utils/emailConflict');
+const { sendCustomerCreatedBySupplierEmail } = require('../utils/emailService');
 
 // Calculate price and GST endpoint
 const calculatePrice = async (req, res) => {
@@ -1782,6 +1784,7 @@ const createSupplierBooking = async (req, res) => {
     let {
       customer_name,
       customer_phone,
+      customer_email,
       service_category,
       bins,
       location,
@@ -1806,10 +1809,18 @@ const createSupplierBooking = async (req, res) => {
     }
 
     const supplierId = req.user.id;
+    const normalizedCustomerEmail = User.normalizeEmail(customer_email);
 
     // 1. Handle Customer (Find or Create)
     let customer = await User.findByPhone(customer_phone);
     let isNewCustomer = false;
+
+    if (normalizedCustomerEmail) {
+      const emailOwner = await User.findByEmail(normalizedCustomerEmail);
+      if (emailOwner && (!customer || emailOwner.id !== customer.id)) {
+        throw User.emailConflictError();
+      }
+    }
 
     if (customer) {
       // Security: only allow linking actual customers, not suppliers/admins/drivers
@@ -1818,6 +1829,9 @@ const createSupplierBooking = async (req, res) => {
           success: false,
           message: 'This mobile number is associated with a non-customer account and cannot be used',
         });
+      }
+      if (!customer.email && normalizedCustomerEmail) {
+        customer.email = await User.updateEmailIfAvailable(customer.id, normalizedCustomerEmail);
       }
     } else {
       // Block if phone belongs to a soft-deleted account
@@ -1836,15 +1850,14 @@ const createSupplierBooking = async (req, res) => {
       customer = await User.create({
         name: customer_name,
         phone: customer_phone,
+        email: normalizedCustomerEmail,
         role: 'customer',
         password: randomPassword,
       });
       isNewCustomer = true;
-      console.log(`Created new customer: ${customer_name} (${customer_phone}) with random password.`);
     }
 
     // Link customer to this supplier via pivot table (safe to run every time — upsert)
-    const pool = require('../config/database');
     await pool.query(
       'INSERT INTO supplier_customers (supplier_id, customer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [supplierId, customer.id]
@@ -1967,6 +1980,13 @@ const createSupplierBooking = async (req, res) => {
       payment_status: 'unpaid'
     });
 
+    if (isNewCustomer && customer.email) {
+      sendCustomerCreatedBySupplierEmail({
+        to: customer.email,
+        name: customer.name,
+      }).catch(error => console.error('Customer welcome email failed:', error.message));
+    }
+
     res.status(201).json({
       success: true,
       message: isNewCustomer ? 'Order created. New customer account created.' : 'Order created successfully',
@@ -1977,6 +1997,7 @@ const createSupplierBooking = async (req, res) => {
     });
 
   } catch (error) {
+    if (sendEmailConflict(res, error)) return;
     console.error('Supplier create order error:', error);
     res.status(500).json({
       success: false,

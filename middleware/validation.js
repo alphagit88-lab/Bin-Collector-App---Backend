@@ -116,6 +116,10 @@ const validateUpdateBooking = [
 
 const validateSupplierCreateBooking = [
   canadianPhoneValidator('customer_phone'),
+  body('customer_email')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isEmail().withMessage('Invalid customer email format'),
   handleValidationErrors,
 ];
 
