@@ -80,7 +80,7 @@ const sendPasswordResetOtpEmail = ({ to, name, otp, expiresInMinutes }) => sendT
   text: `Your BinDrop password reset code is ${otp}. It expires in ${expiresInMinutes} minutes. If you did not request this, you can ignore this email.`,
   attachments: [{
     filename: 'logo-bd.png',
-    path: path.join(__dirname, '..', '..', 'logo-bd.png'),
+    path: path.join(__dirname, '..', 'templates', 'email', 'assets', 'logo-bd.png'),
     cid: 'bindrop-logo',
   }],
 });
@@ -98,7 +98,7 @@ const sendCustomerCreatedBySupplierEmail = ({ to, name }) => sendTemplatedEmail(
   text: `A BinDrop supplier created a customer account for you. Set your password using Forgot Password, then sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login. Download the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
   attachments: [{
     filename: 'logo-bd.png',
-    path: path.join(__dirname, '..', '..', 'logo-bd.png'),
+    path: path.join(__dirname, '..', 'templates', 'email', 'assets', 'logo-bd.png'),
     cid: 'bindrop-logo',
   }],
 });
