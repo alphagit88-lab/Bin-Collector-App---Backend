@@ -11,6 +11,9 @@ const requiredEnvironmentVariables = [
 
 let transporter;
 
+const getEmailLogoUrl = () => process.env.EMAIL_LOGO_URL
+  || `${(process.env.FRONTEND_URL || 'https://app.bindrop.ai').replace(/\/$/, '')}/logo-bd.png`;
+
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -76,13 +79,9 @@ const sendPasswordResetOtpEmail = ({ to, name, otp, expiresInMinutes }) => sendT
     otp,
     expiresInMinutes,
     year: new Date().getFullYear(),
+    logoUrl: getEmailLogoUrl(),
   },
   text: `Your BinDrop password reset code is ${otp}. It expires in ${expiresInMinutes} minutes. If you did not request this, you can ignore this email.`,
-  attachments: [{
-    filename: 'logo-bd.png',
-    path: path.join(__dirname, '..', 'templates', 'email', 'assets', 'logo-bd.png'),
-    cid: 'bindrop-logo',
-  }],
 });
 
 const sendCustomerCreatedBySupplierEmail = ({ to, name }) => sendTemplatedEmail({
@@ -94,13 +93,9 @@ const sendCustomerCreatedBySupplierEmail = ({ to, name }) => sendTemplatedEmail(
     webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
     mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
     year: new Date().getFullYear(),
+    logoUrl: getEmailLogoUrl(),
   },
   text: `A BinDrop supplier created a customer account for you. Set your password using Forgot Password, then sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login. Download the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
-  attachments: [{
-    filename: 'logo-bd.png',
-    path: path.join(__dirname, '..', 'templates', 'email', 'assets', 'logo-bd.png'),
-    cid: 'bindrop-logo',
-  }],
 });
 
 module.exports = {
