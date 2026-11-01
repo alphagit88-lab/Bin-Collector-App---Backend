@@ -4,6 +4,7 @@ const jwtConfig = require('../config/jwt');
 const pool = require('../config/database');
 const crypto = require('crypto');
 const { sendEmailConflict } = require('../utils/emailConflict');
+const { sendPasswordResetOtpEmail } = require('../utils/emailService');
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_RESEND_SECONDS = 30;
@@ -199,10 +200,13 @@ const requestPasswordResetOtp = async (req, res) => {
          updated_at = NOW()`,
       [user.id, otpHash, resetWindow]
     );
+    await sendPasswordResetOtpEmail({
+      to: user.email,
+      name: user.name,
+      otp,
+      expiresInMinutes: OTP_EXPIRY_MINUTES,
+    });
     await client.query('COMMIT');
-
-    // Temporary delivery mechanism until email service is configured. Never return the OTP to clients.
-    console.log(`[Password reset OTP] user=${user.id} destination=${user.email} otp=${otp} expires=${OTP_EXPIRY_MINUTES}m`);
 
     return res.json({
       success: true,
