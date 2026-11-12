@@ -49,6 +49,14 @@ const signup = async (req, res) => {
     // Create user
     const user = await User.create({ name, phone, email, role, password, supplierType });
 
+    if (role === 'supplier') {
+      return res.status(201).json({
+        success: true,
+        message: 'Supplier account created. Please wait for administrator approval before signing in.',
+        data: { user, pendingApproval: true },
+      });
+    }
+
     // Generate token
     const token = jwt.sign(
       { id: user.id, phone: user.phone, role: user.role },
@@ -102,6 +110,13 @@ const login = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid email, phone number, or password',
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is inactive. Please contact support.',
       });
     }
 

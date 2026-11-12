@@ -31,18 +31,19 @@ class User {
     return normalizedEmail;
   }
 
-  static async create({ name, phone, email, role, password, supplierType, supplierId, canViewBilling }) {
+  static async create({ name, phone, email, role, password, supplierType, supplierId, canViewBilling, isActive }) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const normalizedEmail = this.normalizeEmail(email);
     const supplier_type = role === 'supplier' ? (supplierType || null) : null;
     const supplier_id = role === 'driver' ? (supplierId || null) : null;
     const can_view_billing = canViewBilling === true ? true : false;
+    const is_active = isActive !== undefined ? isActive === true : role !== 'supplier';
     const query = `
-      INSERT INTO users (name, phone, email, role, supplier_type, supplier_id, password_hash, push_token, can_view_billing, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", created_at, updated_at
+      INSERT INTO users (name, phone, email, role, supplier_type, supplier_id, password_hash, push_token, can_view_billing, is_active, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", is_active AS "isActive", created_at, updated_at
     `;
-    const values = [name, phone, normalizedEmail, role, supplier_type, supplier_id, hashedPassword, null, can_view_billing];
+    const values = [name, phone, normalizedEmail, role, supplier_type, supplier_id, hashedPassword, null, can_view_billing, is_active];
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -76,6 +77,7 @@ class User {
         profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
         delete_request AS "deleteRequest",
+        is_active AS "isActive",
         created_at,
         updated_at
       FROM users
@@ -102,6 +104,7 @@ class User {
         profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
         delete_request AS "deleteRequest",
+        is_active AS "isActive",
         created_at,
         updated_at
       FROM users
@@ -145,6 +148,7 @@ class User {
         profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
         delete_request AS "deleteRequest",
+        is_active AS "isActive",
         created_at, 
         updated_at 
       FROM users 
@@ -168,6 +172,7 @@ class User {
         profile_photo AS "profilePhoto",
         can_view_billing AS "canViewBilling",
         delete_request AS "deleteRequest",
+        is_active AS "isActive",
         created_at, 
         updated_at 
       FROM users
@@ -204,7 +209,7 @@ class User {
     return result.rows;
   }
 
-  static async update(id, { name, email, phone, role, supplierType, supplierId, profilePhoto }) {
+  static async update(id, { name, email, phone, role, supplierType, supplierId, profilePhoto, canViewBilling, isActive }) {
     const updates = [];
     const values = [];
     let paramCount = 1;
@@ -233,9 +238,13 @@ class User {
       updates.push(`supplier_id = $${paramCount++}`);
       values.push(supplierId || null);
     }
-    if (arguments[1].canViewBilling !== undefined) {
+    if (canViewBilling !== undefined) {
       updates.push(`can_view_billing = $${paramCount++}`);
-      values.push(arguments[1].canViewBilling);
+      values.push(canViewBilling);
+    }
+    if (isActive !== undefined) {
+      updates.push(`is_active = $${paramCount++}`);
+      values.push(isActive === true);
     }
     if (profilePhoto !== undefined) {
       updates.push(`profile_photo = $${paramCount++}`);
@@ -253,7 +262,7 @@ class User {
       UPDATE users 
       SET ${updates.join(', ')}
       WHERE id = $${paramCount} AND is_deleted = FALSE
-      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", created_at, updated_at
+      RETURNING id, name, phone, email, role, supplier_type AS "supplierType", supplier_id AS "supplierId", push_token AS "pushToken", profile_photo AS "profilePhoto", can_view_billing AS "canViewBilling", is_active AS "isActive", created_at, updated_at
     `;
     const client = await pool.connect();
     try {
@@ -389,6 +398,7 @@ class User {
       INNER JOIN service_area_bins sab ON sa.id = sab.service_area_id
       WHERE u.role = 'supplier'
         AND u.is_deleted = FALSE
+        AND u.is_active = TRUE
         AND pb.bin_type_id = $1
         AND pb.bin_size_id IS NOT DISTINCT FROM $2
         AND pb.status = 'available'
@@ -535,6 +545,7 @@ class User {
       JOIN suppliers_with_stock sws ON u.id = sws.supplier_id
       JOIN supplier_totals st ON u.id = st.supplier_id
       WHERE u.is_deleted = FALSE
+        AND u.is_active = TRUE
       ORDER BY st.total_price ASC, u.name ASC
     `;
 
@@ -571,6 +582,7 @@ class User {
       INNER JOIN service_areas sa ON u.id = sa.supplier_id
       WHERE u.role = 'supplier'
         AND u.is_deleted = FALSE
+        AND u.is_active = TRUE
         ${locationCondition}
       ORDER BY u.name
     `;
@@ -676,6 +688,7 @@ class User {
         AND ab.bin_size_id IS NOT DISTINCT FROM ap.bin_size_id
       JOIN users u ON ab.supplier_id = u.id
       WHERE u.is_deleted = FALSE
+        AND u.is_active = TRUE
     `;
     const result = await pool.query(query, values);
     const available = result.rows;

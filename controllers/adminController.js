@@ -223,7 +223,7 @@ const updateAdmin = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, role, supplierId, supplierType, canViewBilling } = req.body;
+    const { name, email, role, supplierId, supplierType, canViewBilling, isActive } = req.body;
 
     const user = await User.findById(id);
     if (!user) {
@@ -233,7 +233,23 @@ const updateUser = async (req, res) => {
       });
     }
 
-    const updatedUser = await User.update(id, { name, email, role, supplierId, supplierType, canViewBilling });
+    if (isActive !== undefined) {
+      if (typeof isActive !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: 'Activation status must be a boolean',
+        });
+      }
+
+      if (Number(id) === Number(req.user.id) && !isActive) {
+        return res.status(400).json({
+          success: false,
+          message: 'You cannot deactivate your own account',
+        });
+      }
+    }
+
+    const updatedUser = await User.update(id, { name, email, role, supplierId, supplierType, canViewBilling, isActive });
     
     res.json({
       success: true,

@@ -21,6 +21,12 @@ const authenticate = async (req, res, next) => {
         message: 'Invalid or expired token',
       });
     }
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is inactive. Please contact support.',
+      });
+    }
     req.user = { ...decoded, role: user.role };
     next();
   } catch (error) {

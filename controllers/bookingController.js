@@ -2471,6 +2471,7 @@ const getMySuppliers = async (req, res) => {
        INNER JOIN supplier_customers sc ON sc.supplier_id = u.id
        WHERE sc.customer_id = $1
          AND u.is_deleted = FALSE
+         AND u.is_active = TRUE
          AND u.role = 'supplier'
          AND u.supplier_type IN ('commercial', 'commercial_residential')
        ORDER BY u.name ASC`,
