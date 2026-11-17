@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../config/database');
 const { sendEmailConflict } = require('../utils/emailConflict');
-const { sendCustomerCreatedBySupplierEmail } = require('../utils/emailService');
+const { sendCustomerCreatedBySupplierEmail, generateTemporaryPassword } = require('../utils/emailService');
 
 // Calculate price and GST endpoint
 const calculatePrice = async (req, res) => {
@@ -1814,6 +1814,7 @@ const createSupplierBooking = async (req, res) => {
     // 1. Handle Customer (Find or Create)
     let customer = await User.findByPhone(customer_phone);
     let isNewCustomer = false;
+    let newCustomerPassword = null;
 
     if (normalizedCustomerEmail) {
       const emailOwner = await User.findByEmail(normalizedCustomerEmail);
@@ -1846,7 +1847,7 @@ const createSupplierBooking = async (req, res) => {
         });
       }
 
-      const randomPassword = Math.random().toString(36).slice(-8);
+      const randomPassword = generateTemporaryPassword();
       customer = await User.create({
         name: customer_name,
         phone: customer_phone,
@@ -1855,6 +1856,7 @@ const createSupplierBooking = async (req, res) => {
         password: randomPassword,
       });
       isNewCustomer = true;
+      newCustomerPassword = randomPassword;
     }
 
     // Link customer to this supplier via pivot table (safe to run every time — upsert)
@@ -1984,6 +1986,7 @@ const createSupplierBooking = async (req, res) => {
       sendCustomerCreatedBySupplierEmail({
         to: customer.email,
         name: customer.name,
+        temporaryPassword: newCustomerPassword,
       }).catch(error => console.error('Customer welcome email failed:', error.message));
     }
 

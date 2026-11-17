@@ -7,7 +7,7 @@ const ServiceRequest = require('../models/ServiceRequest');
 const SupplierAvailability = require('../models/SupplierAvailability');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const { sendEmailConflict } = require('../utils/emailConflict');
-const { sendCustomerCreatedBySupplierEmail } = require('../utils/emailService');
+const { sendCustomerCreatedBySupplierEmail, generateTemporaryPassword } = require('../utils/emailService');
 
 const getAvailability = async (req, res) => {
     try {
@@ -483,8 +483,8 @@ const addCustomer = async (req, res) => {
                 customer.email = await User.updateEmailIfAvailable(customer.id, trimmedEmail);
             }
         } else {
-            // 2. Create new customer user with random password
-            const randomPassword = Math.random().toString(36).slice(-8);
+            // 2. Create new customer user with temporary password
+            const randomPassword = generateTemporaryPassword();
             customer = await User.create({
                 name: trimmedName,
                 phone: trimmedPhone,
@@ -503,6 +503,7 @@ const addCustomer = async (req, res) => {
                 sendCustomerCreatedBySupplierEmail({
                     to: customer.email,
                     name: customer.name,
+                    temporaryPassword: randomPassword,
                 }).catch(error => console.error('Customer welcome email failed:', error.message));
             }
         }
