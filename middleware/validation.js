@@ -41,8 +41,10 @@ const validateSignup = [
     .isLength({ min: 2, max: 100 }).withMessage('Name must be between 2 and 100 characters'),
   canadianPhoneValidator('phone'),
   body('email')
-    .optional()
-    .isEmail().withMessage('Invalid email format'),
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Invalid email format')
+    .normalizeEmail(),
   body('role')
     .notEmpty().withMessage('Role is required')
     .isIn(['customer', 'supplier']).withMessage('Invalid role. Only customer or supplier can sign up.'),
@@ -80,8 +82,10 @@ const validateLogin = [
 const validateUpdateProfile = [
   canadianPhoneValidator('phone', { optional: true }),
   body('email')
-    .optional()
-    .isEmail().withMessage('Invalid email format'),
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Invalid email format')
+    .normalizeEmail(),
   handleValidationErrors,
 ];
 
@@ -99,7 +103,16 @@ const validateCreatePassword = [
 ];
 
 const validateCreateUser = [
+  body('name')
+    .trim()
+    .notEmpty().withMessage('Name is required')
+    .isLength({ min: 2, max: 100 }).withMessage('Name must be between 2 and 100 characters'),
   canadianPhoneValidator('phone'),
+  body('email')
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Invalid email format')
+    .normalizeEmail(),
   passwordValidator('password'),
   handleValidationErrors,
 ];
@@ -115,11 +128,15 @@ const validateUpdateBooking = [
 ];
 
 const validateSupplierCreateBooking = [
+  body('customer_name')
+    .trim()
+    .notEmpty().withMessage('Customer name is required'),
   canadianPhoneValidator('customer_phone'),
   body('customer_email')
-    .optional({ values: 'falsy' })
     .trim()
-    .isEmail().withMessage('Invalid customer email format'),
+    .notEmpty().withMessage('Customer email is required')
+    .isEmail().withMessage('Invalid customer email format')
+    .normalizeEmail(),
   handleValidationErrors,
 ];
 
@@ -150,9 +167,10 @@ const validateAddCustomer = [
     .isLength({ min: 2, max: 100 }).withMessage('Customer name must be between 2 and 100 characters'),
   canadianPhoneValidator('phone'),
   body('email')
-    .optional({ values: 'falsy' })
     .trim()
-    .isEmail().withMessage('Invalid email format'),
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Invalid email format')
+    .normalizeEmail(),
   handleValidationErrors,
 ];
 

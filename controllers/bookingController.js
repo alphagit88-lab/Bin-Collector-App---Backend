@@ -1811,6 +1811,13 @@ const createSupplierBooking = async (req, res) => {
     const supplierId = req.user.id;
     const normalizedCustomerEmail = User.normalizeEmail(customer_email);
 
+    if (!normalizedCustomerEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid customer email is required',
+      });
+    }
+
     // 1. Handle Customer (Find or Create)
     let customer = await User.findByPhone(customer_phone);
     let isNewCustomer = false;

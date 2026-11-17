@@ -6,6 +6,12 @@ const { sendEmailConflict } = require('../utils/emailConflict');
 const createAdmin = async (req, res) => {
   try {
     const { name, phone, email, password } = req.body;
+    if (!email || !User.normalizeEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid email is required',
+      });
+    }
 
     if (!password || password.length < 8) {
       return res.status(400).json({
@@ -55,6 +61,12 @@ const createAdmin = async (req, res) => {
 const createUser = async (req, res) => {
   try {
     const { name, phone, email, role, password, supplierType, supplierId, canViewBilling } = req.body;
+    if (!email || !User.normalizeEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid email is required',
+      });
+    }
 
     if (!['admin', 'customer', 'supplier', 'driver'].includes(role)) {
       return res.status(400).json({
@@ -176,6 +188,12 @@ const updateAdmin = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, email } = req.body;
+    if (email !== undefined && (!email || !User.normalizeEmail(email))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid email is required',
+      });
+    }
 
     // Verify user is admin
     const user = await User.findById(id);
@@ -224,6 +242,12 @@ const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, email, role, supplierId, supplierType, canViewBilling, isActive } = req.body;
+    if (email !== undefined && (!email || !User.normalizeEmail(email))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid email is required',
+      });
+    }
 
     const user = await User.findById(id);
     if (!user) {

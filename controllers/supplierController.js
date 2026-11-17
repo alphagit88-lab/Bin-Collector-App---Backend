@@ -166,10 +166,10 @@ const addDriver = async (req, res) => {
         const supplierId = req.user.id;
         const { name, phone, email, password } = req.body;
 
-        if (!name || !phone || !password) {
+        if (!name || !phone || !email || !password) {
             return res.status(400).json({
                 success: false,
-                message: 'Name, phone, and password are required'
+                message: 'Name, phone, email, and password are required'
             });
         }
 
@@ -413,26 +413,24 @@ const addCustomer = async (req, res) => {
         const supplierId = req.user.id;
         const { name, phone, email } = req.body;
 
-        if (!name || !phone) {
+        const trimmedPhone = phone ? phone.trim() : '';
+        const trimmedName = name ? name.trim() : '';
+        const trimmedEmail = User.normalizeEmail(email);
+
+        if (!trimmedName || !trimmedPhone || !trimmedEmail) {
             return res.status(400).json({
                 success: false,
-                message: 'Customer name and mobile number are required',
+                message: 'Customer name, mobile number, and valid email are required',
             });
         }
-
-        const trimmedPhone = phone.trim();
-        const trimmedName = name.trim();
-        const trimmedEmail = User.normalizeEmail(email);
 
         // 1. Check if user already exists with this phone
         let customer = await User.findByPhone(trimmedPhone);
         let isExisting = false;
 
-        if (trimmedEmail) {
-            const emailOwner = await User.findByEmail(trimmedEmail);
-            if (emailOwner && (!customer || emailOwner.id !== customer.id)) {
-                throw User.emailConflictError();
-            }
+        const emailOwner = await User.findByEmail(trimmedEmail);
+        if (emailOwner && (!customer || emailOwner.id !== customer.id)) {
+            throw User.emailConflictError();
         }
 
         // Block if phone belongs to a soft-deleted account
