@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const ServiceAreaBin = require('../models/ServiceAreaBin');
 const { sendEmailConflict } = require('../utils/emailConflict');
+const { sendCustomerCreatedByAdminEmail } = require('../utils/emailService');
 
 // Create admin user (only existing admins can do this)
 const createAdmin = async (req, res) => {
@@ -114,6 +115,14 @@ const createUser = async (req, res) => {
       supplierId,
       canViewBilling,
     });
+
+    if (role === 'customer' && user.email) {
+      sendCustomerCreatedByAdminEmail({
+        to: user.email,
+        name: user.name,
+        temporaryPassword: password,
+      }).catch(error => console.error('Customer welcome email by admin failed:', error.message));
+    }
 
     res.status(201).json({
       success: true,

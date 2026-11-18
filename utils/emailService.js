@@ -157,10 +157,26 @@ const sendCustomerCreatedBySupplierEmail = ({ to, name, temporaryPassword }) => 
   text: `Hello ${name || 'Customer'},\n\nA BinDrop supplier has created a customer account for you so you can view and track your bin orders in one place.\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
 });
 
+const sendCustomerCreatedByAdminEmail = ({ to, name, temporaryPassword }) => sendTemplatedEmail({
+  to,
+  subject: 'Your BinDrop customer account is ready',
+  templateName: 'customerCreatedByAdmin',
+  variables: {
+    name: name || 'Customer',
+    temporaryPassword: temporaryPassword || '',
+    webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+    mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
+    year: new Date().getFullYear(),
+    logoUrl: getEmailLogoUrl(),
+  },
+  text: `Hello ${name || 'Customer'},\n\nYour BinDrop customer account has been created so you can view and track your bin orders in one place.\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password set for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
+});
+
 module.exports = {
   renderTemplate,
   sendTemplatedEmail,
   sendPasswordResetOtpEmail,
   sendCustomerCreatedBySupplierEmail,
+  sendCustomerCreatedByAdminEmail,
   generateTemporaryPassword,
 };
