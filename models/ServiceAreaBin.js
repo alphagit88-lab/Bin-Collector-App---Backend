@@ -16,9 +16,9 @@ class ServiceAreaBin {
             RETURNING *
         `;
         // Handle unique constraint for null sizes
-        const conflictQuery = bin_size_id 
-          ? query 
-          : `INSERT INTO service_area_bins (service_area_id, bin_size_id, bin_type_id, supplier_price)
+        const conflictQuery = bin_size_id
+            ? query
+            : `INSERT INTO service_area_bins (service_area_id, bin_size_id, bin_type_id, supplier_price)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (service_area_id, bin_type_id) WHERE bin_size_id IS NULL
              DO UPDATE SET 
@@ -134,19 +134,21 @@ class ServiceAreaBin {
      */
     static async getFinalPricesForAreas(areaIds) {
         if (!areaIds || areaIds.length === 0) return [];
-        
+
         const query = `
-          SELECT DISTINCT ON (sab.bin_type_id, sab.bin_size_id)
+          SELECT DISTINCT ON (COALESCE(sab.bin_type_id, bs.bin_type_id), sab.bin_size_id)
             sab.*,
-            bs.size as bin_size_name,
-            bt.name as bin_type_name
+            COALESCE(sab.bin_type_id, bs.bin_type_id) AS bin_type_id,
+            bs.size AS bin_size_name,
+            COALESCE(bt_direct.name, bt_join.name) AS bin_type_name
           FROM service_area_bins sab
-          JOIN bin_sizes bs ON sab.bin_size_id = bs.id
-          JOIN bin_types bt ON bs.bin_type_id = bt.id
+          LEFT JOIN bin_sizes bs ON sab.bin_size_id = bs.id
+          LEFT JOIN bin_types bt_join ON bs.bin_type_id = bt_join.id
+          LEFT JOIN bin_types bt_direct ON sab.bin_type_id = bt_direct.id
           WHERE sab.service_area_id = ANY($1)
             AND sab.is_active = TRUE
             AND sab.admin_final_price IS NOT NULL
-          ORDER BY sab.bin_type_id, sab.bin_size_id, sab.admin_final_price ASC
+          ORDER BY COALESCE(sab.bin_type_id, bs.bin_type_id), sab.bin_size_id, sab.admin_final_price ASC
         `;
         const result = await pool.query(query, [areaIds]);
         return result.rows;

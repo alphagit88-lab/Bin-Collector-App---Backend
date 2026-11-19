@@ -94,11 +94,22 @@ const createServiceArea = async (req, res) => {
             });
         }
 
+        const trimmedCity = String(city).trim();
+
+        // Avoid duplicate area per supplier
+        const existingArea = await ServiceArea.findBySupplierAndCity(supplierId, trimmedCity);
+        if (existingArea) {
+            return res.status(400).json({
+                success: false,
+                message: `Service area for '${existingArea.city}' already exists. Duplicated areas are not allowed.`
+            });
+        }
+
         const serviceArea = await ServiceArea.create({
             supplierId,
-            country,
-            city,
-            areaRadiusKm: parseInt(areaRadiusKm),
+            country: String(country).trim(),
+            city: trimmedCity,
+            areaRadiusKm: parseInt(areaRadiusKm, 10),
             latitude,
             longitude
         });

@@ -1786,6 +1786,8 @@ const createSupplierBooking = async (req, res) => {
       customer_phone,
       customer_email,
       service_category,
+      selected_services,
+      total_price,
       bins,
       location,
       start_date,
@@ -1794,6 +1796,7 @@ const createSupplierBooking = async (req, res) => {
       latitude,
       longitude,
       project_id,
+      po_number,
       payment_method = 'cash' // Default to cash for supplier-created orders
     } = req.body;
 
@@ -1872,48 +1875,59 @@ const createSupplierBooking = async (req, res) => {
       [supplierId, customer.id]
     );
 
-    // 2. Prepare Order Items
-    if (typeof bins === 'string') {
-      try { bins = JSON.parse(bins); } catch (e) { }
-    }
-
+    // 2. Prepare Order Items / Services
     let orderItems = [];
-    if (bins && Array.isArray(bins) && bins.length > 0) {
-      orderItems = bins.map(bin => ({
-        bin_type_id: parseInt(bin.bin_type_id),
-        bin_size_id: bin.bin_size_id ? parseInt(bin.bin_size_id) : null,
-        quantity: parseInt(bin.quantity) || 1,
-      }));
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: 'At least one bin is required',
-      });
-    }
-
-    // 3. Calculate Pricing (Simplified for supplier-created orders, we can use their own pricing)
-    // For now, let's just use a placeholder or expect it in the body if we want it flexible.
-    // In this specific flow, let's assume the supplier sets the price or it's fetched from their configuration.
-    // To keep it robust, let's try to find their configured price for these bins in this area.
-
     let totalEstimatedPrice = 0;
-    // We'll need a way to get the price. Let's assume for now the supplier provides it or we default to 0.
-    // The user didn't specify pricing logic for this specific flow, but usually, it's either their standard rate or a custom one.
-    // Let's assume they might pass a custom price per item.
 
-    for (const item of bins) {
-      totalEstimatedPrice += (parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1);
+    if (service_category === 'service') {
+      if (typeof selected_services === 'string') {
+        try { selected_services = JSON.parse(selected_services); } catch (e) { }
+      }
+
+      if (!selected_services || !Array.isArray(selected_services) || selected_services.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'At least one service is required for service category',
+        });
+      }
+
+      totalEstimatedPrice = parseFloat(total_price) || 0;
+      if (!totalEstimatedPrice && Array.isArray(selected_services)) {
+        for (const s of selected_services) {
+          totalEstimatedPrice += (parseFloat(s.price) || 0) * (parseInt(s.quantity) || 1);
+        }
+      }
+    } else {
+      if (typeof bins === 'string') {
+        try { bins = JSON.parse(bins); } catch (e) { }
+      }
+
+      if (bins && Array.isArray(bins) && bins.length > 0) {
+        orderItems = bins.map(bin => ({
+          bin_type_id: parseInt(bin.bin_type_id),
+          bin_size_id: bin.bin_size_id ? parseInt(bin.bin_size_id) : null,
+          quantity: parseInt(bin.quantity) || 1,
+        }));
+        for (const item of bins) {
+          totalEstimatedPrice += (parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1);
+        }
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'At least one bin is required',
+        });
+      }
     }
 
     const requestId = await generateRequestId();
 
-    // 4. Create Service Request
+    // 3. Create Service Request
     const serviceRequest = await ServiceRequest.create({
       request_id: requestId,
       customer_id: customer.id,
       service_category,
-      bin_type_id: orderItems[0].bin_type_id,
-      bin_size_id: orderItems[0].bin_size_id,
+      bin_type_id: orderItems.length > 0 ? orderItems[0].bin_type_id : null,
+      bin_size_id: orderItems.length > 0 && orderItems[0].bin_size_id ? orderItems[0].bin_size_id : null,
       location,
       start_date,
       end_date,
@@ -1925,6 +1939,8 @@ const createSupplierBooking = async (req, res) => {
       latitude,
       longitude,
       project_id: project_id || null,
+      po_number: po_number || null,
+      selected_services: service_category === 'service' ? selected_services : null,
       additional_images,
     });
 
@@ -1941,7 +1957,7 @@ const createSupplierBooking = async (req, res) => {
       changed_by: supplierId
     });
 
-    // 5. Create Order Items
+    // 4. Create Order Items (if bins were ordered)
     for (const item of orderItems) {
       for (let i = 0; i < item.quantity; i++) {
         await OrderItem.create({

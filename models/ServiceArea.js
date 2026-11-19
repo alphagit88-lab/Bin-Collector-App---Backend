@@ -31,6 +31,16 @@ class ServiceArea {
         return result.rows[0];
     }
 
+    static async findBySupplierAndCity(supplierId, city) {
+        const query = `
+      SELECT * FROM service_areas
+      WHERE supplier_id = $1 AND LOWER(TRIM(city)) = LOWER(TRIM($2))
+      LIMIT 1
+    `;
+        const result = await pool.query(query, [supplierId, city]);
+        return result.rows[0] || null;
+    }
+
     static async delete(id, supplierId) {
         const query = `
       DELETE FROM service_areas
