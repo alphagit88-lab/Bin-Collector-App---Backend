@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const ServiceAreaBin = require('../models/ServiceAreaBin');
 const { sendEmailConflict } = require('../utils/emailConflict');
-const { sendCustomerCreatedByAdminEmail } = require('../utils/emailService');
+const { sendUserCreatedByAdminEmail } = require('../utils/emailService');
 
 // Create admin user (only existing admins can do this)
 const createAdmin = async (req, res) => {
@@ -41,6 +41,15 @@ const createAdmin = async (req, res) => {
       password,
       supplierType: null,
     });
+
+    if (user.email && user.role !== 'admin') {
+      sendUserCreatedByAdminEmail({
+        to: user.email,
+        name: user.name,
+        role: 'admin',
+        temporaryPassword: password,
+      }).catch(error => console.error('Admin welcome email by admin failed:', error.message));
+    }
 
     res.status(201).json({
       success: true,
@@ -116,12 +125,13 @@ const createUser = async (req, res) => {
       canViewBilling,
     });
 
-    if (role === 'customer' && user.email) {
-      sendCustomerCreatedByAdminEmail({
+    if (user.email && user.role !== 'admin') {
+      sendUserCreatedByAdminEmail({
         to: user.email,
         name: user.name,
+        role: user.role,
         temporaryPassword: password,
-      }).catch(error => console.error('Customer welcome email by admin failed:', error.message));
+      }).catch(error => console.error(`${user.role} welcome email by admin failed:`, error.message));
     }
 
     res.status(201).json({

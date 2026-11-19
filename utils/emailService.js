@@ -142,41 +142,98 @@ const generateTemporaryPassword = (length = 10) => {
   return pwd.sort(() => crypto.randomInt(3) - 1).join('');
 };
 
-const sendCustomerCreatedBySupplierEmail = ({ to, name, temporaryPassword }) => sendTemplatedEmail({
-  to,
-  subject: 'Your BinDrop customer account is ready',
-  templateName: 'customerCreatedBySupplier',
-  variables: {
-    name: name || 'Customer',
-    temporaryPassword: temporaryPassword || '',
-    webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
-    mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
-    year: new Date().getFullYear(),
-    logoUrl: getEmailLogoUrl(),
-  },
-  text: `Hello ${name || 'Customer'},\n\nA BinDrop supplier has created a customer account for you so you can view and track your bin orders in one place.\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
-});
+const formatRoleTitle = (role = '') => {
+  switch (String(role).toLowerCase()) {
+    case 'admin':
+      return 'Administrator';
+    case 'supplier':
+      return 'Supplier';
+    case 'driver':
+      return 'Driver';
+    case 'customer':
+    default:
+      return 'Customer';
+  }
+};
 
-const sendCustomerCreatedByAdminEmail = ({ to, name, temporaryPassword }) => sendTemplatedEmail({
-  to,
-  subject: 'Your BinDrop customer account is ready',
-  templateName: 'customerCreatedByAdmin',
-  variables: {
-    name: name || 'Customer',
-    temporaryPassword: temporaryPassword || '',
-    webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
-    mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
-    year: new Date().getFullYear(),
-    logoUrl: getEmailLogoUrl(),
-  },
-  text: `Hello ${name || 'Customer'},\n\nYour BinDrop customer account has been created so you can view and track your bin orders in one place.\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password set for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
-});
+const getAdminCreatedDescription = (role = '') => {
+  switch (String(role).toLowerCase()) {
+    case 'supplier':
+      return 'Your BinDrop supplier account has been created so you can manage your fleet, bins, and customer orders.';
+    case 'driver':
+      return 'Your BinDrop driver account has been created so you can view and fulfill your assigned delivery jobs.';
+    case 'admin':
+      return 'Your BinDrop administrator account has been created so you can manage platform operations.';
+    case 'customer':
+    default:
+      return 'Your BinDrop customer account has been created so you can view and track your bin orders in one place.';
+  }
+};
+
+const getSupplierCreatedDescription = (role = '') => {
+  switch (String(role).toLowerCase()) {
+    case 'driver':
+      return 'A BinDrop supplier has created a driver account for you so you can view and fulfill your assigned delivery jobs.';
+    case 'customer':
+    default:
+      return 'A BinDrop supplier has created a customer account for you so you can view and track your bin orders in one place.';
+  }
+};
+
+const sendUserCreatedByAdminEmail = ({ to, name, role = 'customer', temporaryPassword, description }) => {
+  const roleTitle = formatRoleTitle(role);
+  const resolvedDescription = description || getAdminCreatedDescription(role);
+
+  return sendTemplatedEmail({
+    to,
+    subject: `Your BinDrop ${roleTitle} account is ready`,
+    templateName: 'userCreatedByAdmin',
+    variables: {
+      name: name || roleTitle,
+      role: roleTitle,
+      roleTitle,
+      description: resolvedDescription,
+      temporaryPassword: temporaryPassword || '',
+      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
+      year: new Date().getFullYear(),
+      logoUrl: getEmailLogoUrl(),
+    },
+    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password set for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
+  });
+};
+
+const sendUserCreatedBySupplierEmail = ({ to, name, role = 'customer', temporaryPassword, description }) => {
+  const roleTitle = formatRoleTitle(role);
+  const resolvedDescription = description || getSupplierCreatedDescription(role);
+
+  return sendTemplatedEmail({
+    to,
+    subject: `Your BinDrop ${roleTitle} account is ready`,
+    templateName: 'userCreatedBySupplier',
+    variables: {
+      name: name || roleTitle,
+      role: roleTitle,
+      roleTitle,
+      description: resolvedDescription,
+      temporaryPassword: temporaryPassword || '',
+      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
+      year: new Date().getFullYear(),
+      logoUrl: getEmailLogoUrl(),
+    },
+    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password generated for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
+  });
+};
 
 module.exports = {
   renderTemplate,
   sendTemplatedEmail,
   sendPasswordResetOtpEmail,
-  sendCustomerCreatedBySupplierEmail,
-  sendCustomerCreatedByAdminEmail,
+  sendUserCreatedByAdminEmail,
+  sendUserCreatedBySupplierEmail,
   generateTemporaryPassword,
+  formatRoleTitle,
+  getAdminCreatedDescription,
+  getSupplierCreatedDescription,
 };

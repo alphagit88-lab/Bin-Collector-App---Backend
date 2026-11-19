@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../config/database');
 const { sendEmailConflict } = require('../utils/emailConflict');
-const { sendCustomerCreatedBySupplierEmail, generateTemporaryPassword } = require('../utils/emailService');
+const { sendUserCreatedBySupplierEmail, generateTemporaryPassword } = require('../utils/emailService');
 
 // Calculate price and GST endpoint
 const calculatePrice = async (req, res) => {
@@ -1990,9 +1990,10 @@ const createSupplierBooking = async (req, res) => {
     });
 
     if (isNewCustomer && customer.email) {
-      sendCustomerCreatedBySupplierEmail({
+      sendUserCreatedBySupplierEmail({
         to: customer.email,
         name: customer.name,
+        role: 'customer',
         temporaryPassword: newCustomerPassword,
       }).catch(error => console.error('Customer welcome email failed:', error.message));
     }

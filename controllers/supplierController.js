@@ -7,7 +7,10 @@ const ServiceRequest = require('../models/ServiceRequest');
 const SupplierAvailability = require('../models/SupplierAvailability');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const { sendEmailConflict } = require('../utils/emailConflict');
-const { sendCustomerCreatedBySupplierEmail, generateTemporaryPassword } = require('../utils/emailService');
+const {
+    sendUserCreatedBySupplierEmail,
+    generateTemporaryPassword,
+} = require('../utils/emailService');
 
 const getAvailability = async (req, res) => {
     try {
@@ -192,6 +195,15 @@ const addDriver = async (req, res) => {
             role: 'driver',
             supplierId
         });
+
+        if (driver.email) {
+            sendUserCreatedBySupplierEmail({
+                to: driver.email,
+                name: driver.name,
+                role: 'driver',
+                temporaryPassword: password,
+            }).catch(error => console.error('Driver welcome email by supplier failed:', error.message));
+        }
 
         res.status(201).json({
             success: true,
@@ -498,9 +510,10 @@ const addCustomer = async (req, res) => {
             );
 
             if (customer.email) {
-                sendCustomerCreatedBySupplierEmail({
+                sendUserCreatedBySupplierEmail({
                     to: customer.email,
                     name: customer.name,
+                    role: 'customer',
                     temporaryPassword: randomPassword,
                 }).catch(error => console.error('Customer welcome email failed:', error.message));
             }
