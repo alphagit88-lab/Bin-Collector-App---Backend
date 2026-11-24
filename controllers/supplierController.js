@@ -9,6 +9,7 @@ const { sendPushNotifications } = require('../utils/pushNotification');
 const { sendEmailConflict } = require('../utils/emailConflict');
 const {
     sendUserCreatedBySupplierEmail,
+    sendCustomerStatusEmail,
     generateTemporaryPassword,
 } = require('../utils/emailService');
 
@@ -446,20 +447,36 @@ const toggleCustomerStatus = async (req, res) => {
         const customerId = parseInt(req.params.id);
 
         const check = await pool.query(
-            'SELECT id, COALESCE(is_active, TRUE) AS is_active FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+            `SELECT sc.id, COALESCE(sc.is_active, TRUE) AS is_active,
+                    u.name AS customer_name, u.email AS customer_email,
+                    s.name AS supplier_name
+             FROM supplier_customers sc
+             JOIN users u ON u.id = sc.customer_id
+             JOIN users s ON s.id = sc.supplier_id
+             WHERE sc.supplier_id = $1 AND sc.customer_id = $2`,
             [supplierId, customerId]
         );
         if (check.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Customer not found in your account' });
         }
 
-        const currentStatus = check.rows[0].is_active;
+        const { is_active: currentStatus, customer_name, customer_email, supplier_name } = check.rows[0];
         const newStatus = !currentStatus;
 
         await pool.query(
             'UPDATE supplier_customers SET is_active = $1 WHERE supplier_id = $2 AND customer_id = $3',
             [newStatus, supplierId, customerId]
         );
+
+        // Send email notification to customer (fire-and-forget)
+        if (customer_email) {
+            sendCustomerStatusEmail({
+                to: customer_email,
+                name: customer_name,
+                supplierName: supplier_name,
+                isActive: newStatus,
+            }).catch(err => console.error('Failed to send customer status email:', err));
+        }
 
         res.json({
             success: true,

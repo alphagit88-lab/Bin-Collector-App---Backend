@@ -228,12 +228,41 @@ const sendUserCreatedBySupplierEmail = ({ to, name, role = 'customer', temporary
   });
 };
 
+const sendCustomerStatusEmail = ({ to, name, supplierName, isActive }) => {
+  const action = isActive ? 'activated' : 'deactivated';
+  const statusLabel = isActive ? 'Active' : 'Inactive';
+  const statusDescription = isActive
+    ? `Your account is now active under ${supplierName}.`
+    : `Your account has been deactivated under ${supplierName}. Contact them if you believe this is a mistake.`;
+
+  return sendTemplatedEmail({
+    to,
+    subject: `Your BinDrop account has been ${action} by ${supplierName}`,
+    templateName: 'customerStatusChanged',
+    variables: {
+      name: name || 'Customer',
+      supplierName,
+      action,
+      statusLabel,
+      statusDescription,
+      badgeBg: isActive ? '#f0fdf4' : '#fff1f2',
+      badgeBorder: isActive ? '#bbf7d0' : '#fecdd3',
+      badgeAccent: isActive ? '#059669' : '#e11d48',
+      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      year: new Date().getFullYear(),
+      logoUrl: getEmailLogoUrl(),
+    },
+    text: `Hello ${name || 'Customer'},\n\nYour customer account with ${supplierName} on BinDrop has been ${action}.\n\nStatus: ${statusLabel}\n${statusDescription}\n\nSign in at ${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+  });
+};
+
 module.exports = {
   renderTemplate,
   sendTemplatedEmail,
   sendPasswordResetOtpEmail,
   sendUserCreatedByAdminEmail,
   sendUserCreatedBySupplierEmail,
+  sendCustomerStatusEmail,
   generateTemporaryPassword,
   formatRoleTitle,
   getAdminCreatedDescription,
