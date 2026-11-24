@@ -64,6 +64,8 @@ const getTransporter = () => {
     });
     */
 
+    console.log('SMTP host: ', host);
+
     transporter = nodemailer.createTransport({
       host,
       port,
