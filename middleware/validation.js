@@ -44,7 +44,7 @@ const validateSignup = [
     .trim()
     .notEmpty().withMessage('Email is required')
     .isEmail().withMessage('Invalid email format')
-    .normalizeEmail(),
+    .normalizeEmail({ gmail_remove_dots: false }),
   body('role')
     .notEmpty().withMessage('Role is required')
     .isIn(['customer', 'supplier']).withMessage('Invalid role. Only customer or supplier can sign up.'),
@@ -85,7 +85,7 @@ const validateUpdateProfile = [
     .trim()
     .notEmpty().withMessage('Email is required')
     .isEmail().withMessage('Invalid email format')
-    .normalizeEmail(),
+    .normalizeEmail({ gmail_remove_dots: false }),
   handleValidationErrors,
 ];
 
@@ -112,7 +112,7 @@ const validateCreateUser = [
     .trim()
     .notEmpty().withMessage('Email is required')
     .isEmail().withMessage('Invalid email format')
-    .normalizeEmail(),
+    .normalizeEmail({ gmail_remove_dots: false }),
   passwordValidator('password'),
   handleValidationErrors,
 ];
@@ -136,7 +136,7 @@ const validateSupplierCreateBooking = [
     .trim()
     .notEmpty().withMessage('Customer email is required')
     .isEmail().withMessage('Invalid customer email format')
-    .normalizeEmail(),
+    .normalizeEmail({ gmail_remove_dots: false }),
   handleValidationErrors,
 ];
 
@@ -170,7 +170,7 @@ const validateAddCustomer = [
     .trim()
     .notEmpty().withMessage('Email is required')
     .isEmail().withMessage('Invalid email format')
-    .normalizeEmail(),
+    .normalizeEmail({ gmail_remove_dots: false }),
   handleValidationErrors,
 ];
 
