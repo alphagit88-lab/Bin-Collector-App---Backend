@@ -177,6 +177,15 @@ exports.updateBin = async (req, res) => {
       delete updates.supplier_id;
     }
 
+    // If bin_code is being updated, check uniqueness
+    if (updates.bin_code && updates.bin_code !== existingBin.bin_code) {
+      const codeCheck = await t.query('SELECT id FROM physical_bins WHERE bin_code = $1 AND id != $2', [updates.bin_code, binId]);
+      if (codeCheck.rows.length > 0) {
+        await t.query('ROLLBACK');
+        return res.status(400).json({ success: false, message: 'Bin code already exists' });
+      }
+    }
+
     // Update bin properties if any provided
     if (Object.keys(updates).length > 0) {
       const binResult = await PhysicalBin.update(binId, updates);

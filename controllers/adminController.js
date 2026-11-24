@@ -33,11 +33,11 @@ const createAdmin = async (req, res) => {
     await User.assertEmailAvailable(email);
 
     // Create admin user
-    const user = await User.create({ 
-      name, 
-      phone, 
-      email, 
-      role: 'admin', 
+    const user = await User.create({
+      name,
+      phone,
+      email,
+      role: 'admin',
       password,
       supplierType: null,
     });
@@ -114,11 +114,11 @@ const createUser = async (req, res) => {
     await User.assertEmailAvailable(email);
 
     // Create user
-    const user = await User.create({ 
-      name, 
-      phone, 
-      email, 
-      role, 
+    const user = await User.create({
+      name,
+      phone,
+      email,
+      role,
       password,
       supplierType,
       supplierId,
@@ -155,7 +155,7 @@ const getAllAdmins = async (req, res) => {
   try {
     const users = await User.findAll();
     const admins = users.filter(user => user.role === 'admin');
-    
+
     res.json({
       success: true,
       data: { admins },
@@ -174,7 +174,7 @@ const getAllAdmins = async (req, res) => {
 const getUsersByRole = async (req, res) => {
   try {
     const { role } = req.params;
-    
+
     if (!['customer', 'supplier', 'driver'].includes(role)) {
       return res.status(400).json({
         success: false,
@@ -186,8 +186,23 @@ const getUsersByRole = async (req, res) => {
     const pagination = parsePagination(req.query);
     const rows = await User.findAll({ role, startDate: req.query.startDate, endDate: req.query.endDate, limit: pagination.limit, offset: pagination.offset });
     const total = extractWindowTotal(rows);
-    const filteredUsers = stripWindowTotal(rows);
-    
+    let filteredUsers = stripWindowTotal(rows);
+
+    // For suppliers, attach their service areas as a comma-separated string
+    if (role === 'supplier' && filteredUsers.length > 0) {
+      const supplierIds = filteredUsers.map(u => u.id);
+      const saResult = await require('../config/database').query(
+        `SELECT supplier_id, string_agg(city, ', ' ORDER BY city) AS service_areas
+         FROM service_areas
+         WHERE supplier_id = ANY($1)
+         GROUP BY supplier_id`,
+        [supplierIds]
+      );
+      const saMap = {};
+      for (const row of saResult.rows) saMap[row.supplier_id] = row.service_areas;
+      filteredUsers = filteredUsers.map(u => ({ ...u, serviceAreas: saMap[u.id] || null }));
+    }
+
     res.json({
       success: true,
       data: { users: filteredUsers, ...(pagination.requested ? { pagination: paginationMeta(pagination.page, pagination.limit, total) } : {}) },
@@ -239,7 +254,7 @@ const updateAdmin = async (req, res) => {
     }
 
     const updatedUser = await User.update(id, { name, email });
-    
+
     res.json({
       success: true,
       message: 'Admin updated successfully',
@@ -293,7 +308,7 @@ const updateUser = async (req, res) => {
     }
 
     const updatedUser = await User.update(id, { name, email, role, supplierId, supplierType, canViewBilling, isActive });
-    
+
     res.json({
       success: true,
       message: 'User updated successfully',
@@ -340,7 +355,7 @@ const deleteAdmin = async (req, res) => {
     }
 
     await User.delete(id);
-    
+
     res.json({
       success: true,
       message: 'Admin deleted successfully',
@@ -377,89 +392,89 @@ const deleteUser = async (req, res) => {
     }
 
     await User.delete(id);
-    
+
     res.json({
       success: true,
       message: 'User deleted successfully',
     });
-    } catch (error) {
-        console.error('Delete user error:', error);
+  } catch (error) {
+    console.error('Delete user error:', error);
 
-        if (error.code === '23503' || error.code === '23001') {
-            return res.status(409).json({
-                success: false,
-                message: "User can't be deleted because they have existing service requests.",
-            });
-        }
-
-        return res.status(500).json({
-            success: false,
-            message: 'Unable to delete user.',
-        });
+    if (error.code === '23503' || error.code === '23001') {
+      return res.status(409).json({
+        success: false,
+        message: "User can't be deleted because they have existing service requests.",
+      });
     }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to delete user.',
+    });
+  }
 };
 
 const getBinPriceRanges = async (req, res) => {
-    try {
-        const ranges = await ServiceAreaBin.getPriceRanges();
-        res.json({
-            success: true,
-            data: { ranges },
-        });
-    } catch (error) {
-        console.error('Get bin price ranges error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching bin price ranges',
-            error: error.message,
-        });
-    }
+  try {
+    const ranges = await ServiceAreaBin.getPriceRanges();
+    res.json({
+      success: true,
+      data: { ranges },
+    });
+  } catch (error) {
+    console.error('Get bin price ranges error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching bin price ranges',
+      error: error.message,
+    });
+  }
 };
 
 const updateBinFinalPrice = async (req, res) => {
-    try {
-        const { id } = req.params; // service_area_bin_id
-        const { finalPrice, isActive } = req.body;
+  try {
+    const { id } = req.params; // service_area_bin_id
+    const { finalPrice, isActive } = req.body;
 
-        if (finalPrice === undefined) {
-            return res.status(400).json({
-                success: false,
-                message: 'Final price is required'
-            });
-        }
-
-        const bin = await ServiceAreaBin.updatePrice(id, parseFloat(finalPrice), isActive);
-        
-        res.json({
-            success: true,
-            data: { bin },
-            message: 'Bin price finalized successfully',
-        });
-    } catch (error) {
-        console.error('Update final price error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error updating final price',
-            error: error.message,
-        });
+    if (finalPrice === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Final price is required'
+      });
     }
+
+    const bin = await ServiceAreaBin.updatePrice(id, parseFloat(finalPrice), isActive);
+
+    res.json({
+      success: true,
+      data: { bin },
+      message: 'Bin price finalized successfully',
+    });
+  } catch (error) {
+    console.error('Update final price error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating final price',
+      error: error.message,
+    });
+  }
 };
 
 const getAllBinSubmissions = async (req, res) => {
-    try {
-        const submissions = await ServiceAreaBin.findAllSubmissions();
-        res.json({
-            success: true,
-            data: { submissions },
-        });
-    } catch (error) {
-        console.error('Get all bin submissions error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching bin pricing submissions',
-            error: error.message,
-        });
-    }
+  try {
+    const submissions = await ServiceAreaBin.findAllSubmissions();
+    res.json({
+      success: true,
+      data: { submissions },
+    });
+  } catch (error) {
+    console.error('Get all bin submissions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching bin pricing submissions',
+      error: error.message,
+    });
+  }
 };
 
 module.exports = {
