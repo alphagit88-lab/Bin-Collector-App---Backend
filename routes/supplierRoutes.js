@@ -30,5 +30,6 @@ router.get('/customers', verifyToken, verifyRole(['supplier', 'admin']), supplie
 router.post('/customers', verifyToken, verifyRole(['supplier', 'admin']), validateAddCustomer, supplierController.addCustomer);
 router.put('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.updateCustomer);
 router.delete('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.removeCustomer);
+router.put('/customers/:id/toggle', verifyToken, verifyRole(['supplier', 'admin']), supplierController.toggleCustomerStatus);
 
 module.exports = router;

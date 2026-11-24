@@ -368,14 +368,23 @@ const updateServiceAreaBinPrice = async (req, res) => {
 const getCustomers = async (req, res) => {
     try {
         const supplierId = req.user.id;
-        const result = await pool.query(
-            `SELECT u.id, u.name, u.phone, u.email, u.created_at
-             FROM users u
-             INNER JOIN supplier_customers sc ON sc.customer_id = u.id
-             WHERE sc.supplier_id = $1 AND u.is_deleted = FALSE
-             ORDER BY u.name ASC`,
-            [supplierId]
-        );
+        const includeInactive = req.query.includeInactive === 'true' || req.query.all === 'true';
+
+        let query = `
+            SELECT u.id, u.name, u.phone, u.email, u.created_at,
+                   COALESCE(sc.is_active, TRUE) AS is_active
+            FROM users u
+            INNER JOIN supplier_customers sc ON sc.customer_id = u.id
+            WHERE sc.supplier_id = $1 AND u.is_deleted = FALSE
+        `;
+
+        if (!includeInactive) {
+            query += ` AND COALESCE(sc.is_active, TRUE) = TRUE`;
+        }
+
+        query += ` ORDER BY u.name ASC`;
+
+        const result = await pool.query(query, [supplierId]);
         res.json({ success: true, data: result.rows });
     } catch (error) {
         console.error('Error fetching customers:', error);
@@ -419,15 +428,47 @@ const removeCustomer = async (req, res) => {
             return res.status(403).json({ success: false, message: 'You can only remove your own customers' });
         }
 
-        // Delete only the pivot row — preserves user account and order history
+        // Deactivate relationship — preserves link so customer can be reactivated/reassigned
         await pool.query(
-            'DELETE FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+            'UPDATE supplier_customers SET is_active = FALSE WHERE supplier_id = $1 AND customer_id = $2',
             [supplierId, customerId]
         );
-        res.json({ success: true, message: 'Customer removed from your account' });
+        res.json({ success: true, message: 'Customer deactivated from your account' });
     } catch (error) {
         console.error('Error removing customer:', error);
         res.status(500).json({ success: false, message: 'Error removing customer' });
+    }
+};
+
+const toggleCustomerStatus = async (req, res) => {
+    try {
+        const supplierId = req.user.id;
+        const customerId = parseInt(req.params.id);
+
+        const check = await pool.query(
+            'SELECT id, COALESCE(is_active, TRUE) AS is_active FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+            [supplierId, customerId]
+        );
+        if (check.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Customer not found in your account' });
+        }
+
+        const currentStatus = check.rows[0].is_active;
+        const newStatus = !currentStatus;
+
+        await pool.query(
+            'UPDATE supplier_customers SET is_active = $1 WHERE supplier_id = $2 AND customer_id = $3',
+            [newStatus, supplierId, customerId]
+        );
+
+        res.json({
+            success: true,
+            message: `Customer ${newStatus ? 'activated' : 'deactivated'} successfully`,
+            data: { id: customerId, is_active: newStatus }
+        });
+    } catch (error) {
+        console.error('Error toggling customer status:', error);
+        res.status(500).json({ success: false, message: 'Error updating customer status' });
     }
 };
 
@@ -447,13 +488,20 @@ const addCustomer = async (req, res) => {
             });
         }
 
-        // 1. Check if user already exists with this phone
+        // 1. Look up by phone and email independently
         let customer = await User.findByPhone(trimmedPhone);
         let isExisting = false;
 
         const emailOwner = await User.findByEmail(trimmedEmail);
-        if (emailOwner && (!customer || emailOwner.id !== customer.id)) {
+
+        if (customer && emailOwner && emailOwner.id !== customer.id) {
+            // Both found but belong to different users → true conflict
             throw User.emailConflictError();
+        }
+
+        // If phone not found but email found → use the email's user
+        if (!customer && emailOwner) {
+            customer = emailOwner;
         }
 
         // Block if phone belongs to a soft-deleted account
@@ -482,11 +530,19 @@ const addCustomer = async (req, res) => {
             isExisting = true;
             // Check if already linked to this supplier
             const checkLink = await pool.query(
-                'SELECT id FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+                'SELECT id, COALESCE(is_active, TRUE) AS is_active FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
                 [supplierId, customer.id]
             );
 
             if (checkLink.rows.length > 0) {
+                if (checkLink.rows[0].is_active === false) {
+                    // Reactivate deactivated customer instead of returning error
+                    await pool.query(
+                        'UPDATE supplier_customers SET is_active = TRUE WHERE supplier_id = $1 AND customer_id = $2',
+                        [supplierId, customer.id]
+                    );
+                    return res.json({ success: true, message: 'Customer reactivated to your account', data: customer });
+                }
                 return res.status(400).json({
                     success: false,
                     message: 'This customer is already assigned to your account',
@@ -569,5 +625,6 @@ module.exports = {
     getCustomers,
     addCustomer,
     updateCustomer,
-    removeCustomer
+    removeCustomer,
+    toggleCustomerStatus
 };
