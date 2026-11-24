@@ -153,8 +153,8 @@ const createUser = async (req, res) => {
 // Get all admins
 const getAllAdmins = async (req, res) => {
   try {
-    const users = await User.findAll();
-    const admins = users.filter(user => user.role === 'admin');
+    const { search } = req.query;
+    const admins = await User.findAll({ role: 'admin', search });
 
     res.json({
       success: true,
@@ -184,7 +184,14 @@ const getUsersByRole = async (req, res) => {
 
     const { parsePagination, paginationMeta, extractWindowTotal, stripWindowTotal } = require('../utils/pagination');
     const pagination = parsePagination(req.query);
-    const rows = await User.findAll({ role, startDate: req.query.startDate, endDate: req.query.endDate, limit: pagination.limit, offset: pagination.offset });
+    const rows = await User.findAll({ 
+      role, 
+      search: req.query.search,
+      startDate: req.query.startDate, 
+      endDate: req.query.endDate, 
+      limit: pagination.limit, 
+      offset: pagination.offset 
+    });
     const total = extractWindowTotal(rows);
     let filteredUsers = stripWindowTotal(rows);
 

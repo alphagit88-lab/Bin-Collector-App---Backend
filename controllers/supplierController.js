@@ -370,6 +370,7 @@ const getCustomers = async (req, res) => {
     try {
         const supplierId = req.user.id;
         const includeInactive = req.query.includeInactive === 'true' || req.query.all === 'true';
+        const search = req.query.search ? req.query.search.trim() : '';
 
         let query = `
             SELECT u.id, u.name, u.phone, u.email, u.created_at,
@@ -379,13 +380,22 @@ const getCustomers = async (req, res) => {
             WHERE sc.supplier_id = $1 AND u.is_deleted = FALSE
         `;
 
+        const values = [supplierId];
+        let paramCount = 2;
+
         if (!includeInactive) {
             query += ` AND COALESCE(sc.is_active, TRUE) = TRUE`;
         }
 
+        if (search) {
+            query += ` AND (u.name ILIKE $${paramCount} OR u.phone ILIKE $${paramCount} OR u.email ILIKE $${paramCount})`;
+            values.push(`%${search}%`);
+            paramCount++;
+        }
+
         query += ` ORDER BY u.name ASC`;
 
-        const result = await pool.query(query, [supplierId]);
+        const result = await pool.query(query, values);
         res.json({ success: true, data: result.rows });
     } catch (error) {
         console.error('Error fetching customers:', error);

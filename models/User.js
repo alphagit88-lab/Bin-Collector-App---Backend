@@ -181,6 +181,20 @@ class User {
     const values = [];
     let paramCount = 1;
     if (filters.role) { query += ` AND role = $${paramCount++}`; values.push(filters.role); }
+    if (filters.search && filters.search.trim()) {
+      const term = `%${filters.search.trim()}%`;
+      query += ` AND (
+        name ILIKE $${paramCount} 
+        OR phone ILIKE $${paramCount} 
+        OR email ILIKE $${paramCount}
+        OR EXISTS (
+          SELECT 1 FROM service_areas sa 
+          WHERE sa.supplier_id = users.id AND sa.city ILIKE $${paramCount}
+        )
+      )`;
+      values.push(term);
+      paramCount++;
+    }
     if (filters.startDate) { query += ` AND created_at >= $${paramCount++}::date`; values.push(filters.startDate); }
     if (filters.endDate) { query += ` AND created_at < ($${paramCount++}::date + INTERVAL '1 day')`; values.push(filters.endDate); }
     query += ` ORDER BY created_at DESC`;
