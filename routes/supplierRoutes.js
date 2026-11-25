@@ -26,6 +26,9 @@ router.post('/drivers', verifyToken, verifyRole(['supplier', 'admin']), validate
 router.post('/assign-driver', verifyToken, verifyRole(['supplier', 'admin']), supplierController.assignDriver);
 
 // Customer Management
+// Public (no auth): accept customer invitation via email link
+router.get('/customers/accept', supplierController.acceptCustomerInvitation);
+
 router.get('/customers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.getCustomers);
 router.post('/customers', verifyToken, verifyRole(['supplier', 'admin']), validateAddCustomer, supplierController.addCustomer);
 router.put('/customers/:id', verifyToken, verifyRole(['supplier', 'admin']), supplierController.updateCustomer);

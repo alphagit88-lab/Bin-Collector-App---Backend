@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const pool = require('../config/database');
 const ServiceArea = require('../models/ServiceArea');
 const ServiceAreaBin = require('../models/ServiceAreaBin');
@@ -9,6 +10,7 @@ const { sendPushNotifications } = require('../utils/pushNotification');
 const { sendEmailConflict } = require('../utils/emailConflict');
 const {
     sendUserCreatedBySupplierEmail,
+    sendCustomerInvitationEmail,
     sendCustomerStatusEmail,
     generateTemporaryPassword,
 } = require('../utils/emailService');
@@ -374,7 +376,9 @@ const getCustomers = async (req, res) => {
 
         let query = `
             SELECT u.id, u.name, u.phone, u.email, u.created_at,
-                   COALESCE(sc.is_active, TRUE) AS is_active
+                   sc.is_active,
+                   sc.accepted_at,
+                   (sc.invitation_token IS NOT NULL AND sc.accepted_at IS NULL) AS invitation_pending
             FROM users u
             INNER JOIN supplier_customers sc ON sc.customer_id = u.id
             WHERE sc.supplier_id = $1 AND u.is_deleted = FALSE
@@ -384,7 +388,7 @@ const getCustomers = async (req, res) => {
         let paramCount = 2;
 
         if (!includeInactive) {
-            query += ` AND COALESCE(sc.is_active, TRUE) = TRUE`;
+            query += ` AND sc.is_active = TRUE AND sc.accepted_at IS NOT NULL`;
         }
 
         if (search) {
@@ -457,7 +461,7 @@ const toggleCustomerStatus = async (req, res) => {
         const customerId = parseInt(req.params.id);
 
         const check = await pool.query(
-            `SELECT sc.id, COALESCE(sc.is_active, TRUE) AS is_active,
+            `SELECT sc.id, sc.is_active, sc.accepted_at,
                     u.name AS customer_name, u.email AS customer_email,
                     s.name AS supplier_name
              FROM supplier_customers sc
@@ -470,7 +474,16 @@ const toggleCustomerStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Customer not found in your account' });
         }
 
-        const { is_active: currentStatus, customer_name, customer_email, supplier_name } = check.rows[0];
+        const { is_active: currentStatus, accepted_at, customer_name, customer_email, supplier_name } = check.rows[0];
+
+        // Block supplier from activating if customer hasn't accepted the invitation yet
+        if (!accepted_at && !currentStatus) {
+            return res.status(403).json({
+                success: false,
+                message: 'Cannot activate this customer until they accept the invitation sent to their email.',
+            });
+        }
+
         const newStatus = !currentStatus;
 
         await pool.query(
@@ -515,6 +528,12 @@ const addCustomer = async (req, res) => {
             });
         }
 
+        // Fetch supplier name for the invitation email
+        const supplierRow = await pool.query('SELECT name FROM users WHERE id = $1', [supplierId]);
+        const supplierName = supplierRow.rows[0]?.name || 'Your supplier';
+
+        const frontendUrl = process.env.FRONTEND_URL || 'https://app.bindrop.ai';
+
         // 1. Look up by phone and email independently
         let customer = await User.findByPhone(trimmedPhone);
         let isExisting = false;
@@ -557,34 +576,72 @@ const addCustomer = async (req, res) => {
             isExisting = true;
             // Check if already linked to this supplier
             const checkLink = await pool.query(
-                'SELECT id, COALESCE(is_active, TRUE) AS is_active FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
+                'SELECT id, is_active, accepted_at, invitation_token FROM supplier_customers WHERE supplier_id = $1 AND customer_id = $2',
                 [supplierId, customer.id]
             );
 
             if (checkLink.rows.length > 0) {
-                if (checkLink.rows[0].is_active === false) {
-                    // Reactivate deactivated customer instead of returning error
-                    await pool.query(
-                        'UPDATE supplier_customers SET is_active = TRUE WHERE supplier_id = $1 AND customer_id = $2',
-                        [supplierId, customer.id]
-                    );
-                    return res.json({ success: true, message: 'Customer reactivated to your account', data: customer });
+                const link = checkLink.rows[0];
+
+                if (link.accepted_at !== null && link.is_active === true) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'This customer is already assigned and active in your account',
+                    });
                 }
-                return res.status(400).json({
-                    success: false,
-                    message: 'This customer is already assigned to your account',
+
+                // Resend invitation: generate new token and re-send email
+                const token = crypto.randomBytes(32).toString('hex');
+                const acceptUrl = `${frontendUrl}/accept-invitation?token=${token}`;
+
+                await pool.query(
+                    'UPDATE supplier_customers SET invitation_token = $1, is_active = FALSE, accepted_at = NULL WHERE supplier_id = $2 AND customer_id = $3',
+                    [token, supplierId, customer.id]
+                );
+
+                if (customer.email) {
+                    sendCustomerInvitationEmail({
+                        to: customer.email,
+                        name: customer.name,
+                        supplierName,
+                        acceptUrl,
+                    }).catch(err => console.error('Customer invitation email failed:', err.message));
+                }
+
+                return res.json({
+                    success: true,
+                    message: 'Invitation resent to customer',
+                    data: {
+                        id: customer.id,
+                        name: customer.name,
+                        phone: customer.phone,
+                        email: customer.email,
+                        created_at: customer.created_at || new Date(),
+                    },
                 });
             }
-
-            // Link existing customer to this supplier
-            await pool.query(
-                'INSERT INTO supplier_customers (supplier_id, customer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-                [supplierId, customer.id]
-            );
 
             // Update email if provided and customer didn't have one
             if (!customer.email && trimmedEmail) {
                 customer.email = await User.updateEmailIfAvailable(customer.id, trimmedEmail);
+            }
+
+            // Link existing customer — inactive until they accept
+            const token = crypto.randomBytes(32).toString('hex');
+            const acceptUrl = `${frontendUrl}/accept-invitation?token=${token}`;
+
+            await pool.query(
+                'INSERT INTO supplier_customers (supplier_id, customer_id, is_active, invitation_token) VALUES ($1, $2, FALSE, $3) ON CONFLICT (supplier_id, customer_id) DO UPDATE SET invitation_token=$3, is_active=FALSE, accepted_at=NULL',
+                [supplierId, customer.id, token]
+            );
+
+            if (customer.email) {
+                sendCustomerInvitationEmail({
+                    to: customer.email,
+                    name: customer.name,
+                    supplierName,
+                    acceptUrl,
+                }).catch(err => console.error('Customer invitation email failed:', err.message));
             }
         } else {
             // 2. Create new customer user with temporary password
@@ -597,10 +654,14 @@ const addCustomer = async (req, res) => {
                 password: randomPassword,
             });
 
-            // Link to supplier
+            // Generate invitation token
+            const token = crypto.randomBytes(32).toString('hex');
+            const acceptUrl = `${frontendUrl}/accept-invitation?token=${token}`;
+
+            // Link to supplier — inactive until they accept
             await pool.query(
-                'INSERT INTO supplier_customers (supplier_id, customer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-                [supplierId, customer.id]
+                'INSERT INTO supplier_customers (supplier_id, customer_id, is_active, invitation_token) VALUES ($1, $2, FALSE, $3) ON CONFLICT DO NOTHING',
+                [supplierId, customer.id, token]
             );
 
             if (customer.email) {
@@ -609,6 +670,8 @@ const addCustomer = async (req, res) => {
                     name: customer.name,
                     role: 'customer',
                     temporaryPassword: randomPassword,
+                    supplierName,
+                    acceptUrl,
                 }).catch(error => console.error('Customer welcome email failed:', error.message));
             }
         }
@@ -616,8 +679,8 @@ const addCustomer = async (req, res) => {
         res.status(201).json({
             success: true,
             message: isExisting
-                ? 'Existing customer assigned to your account successfully'
-                : 'Customer created and added to your account successfully',
+                ? 'Invitation sent to existing customer'
+                : 'Customer created and invitation sent',
             data: {
                 id: customer.id,
                 name: customer.name,
@@ -637,6 +700,62 @@ const addCustomer = async (req, res) => {
     }
 };
 
+const acceptCustomerInvitation = async (req, res) => {
+    try {
+        const { token } = req.query;
+
+        if (!token || !/^[a-f0-9]{64}$/.test(token)) {
+            return res.status(400).json({ success: false, message: 'Invalid invitation token' });
+        }
+
+        const result = await pool.query(
+            `SELECT sc.id, sc.accepted_at, sc.is_active,
+                    u.name AS customer_name,
+                    s.name AS supplier_name
+             FROM supplier_customers sc
+             JOIN users u ON u.id = sc.customer_id
+             JOIN users s ON s.id = sc.supplier_id
+             WHERE sc.invitation_token = $1`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invalid or already used invitation link' });
+        }
+
+        const link = result.rows[0];
+
+        // Idempotent: already accepted (token was cleared but somehow matched — shouldn't happen,
+        // but handle gracefully by checking accepted_at via the id lookup below)
+        if (link.accepted_at) {
+            return res.json({
+                success: true,
+                alreadyAccepted: true,
+                supplierName: link.supplier_name,
+                customerName: link.customer_name,
+            });
+        }
+
+        // Accept: activate, set accepted_at, clear token (one-time use)
+        await pool.query(
+            `UPDATE supplier_customers
+             SET is_active = TRUE, accepted_at = NOW(), invitation_token = NULL
+             WHERE id = $1`,
+            [link.id]
+        );
+
+        return res.json({
+            success: true,
+            alreadyAccepted: false,
+            supplierName: link.supplier_name,
+            customerName: link.customer_name,
+        });
+    } catch (error) {
+        console.error('Error accepting invitation:', error);
+        res.status(500).json({ success: false, message: 'Error processing invitation' });
+    }
+};
+
 module.exports = {
     getAvailability,
     updateAvailability,
@@ -653,5 +772,6 @@ module.exports = {
     addCustomer,
     updateCustomer,
     removeCustomer,
-    toggleCustomerStatus
+    toggleCustomerStatus,
+    acceptCustomerInvitation,
 };

@@ -88,9 +88,11 @@ const renderTemplate = (templateName, variables = {}) => {
   const templatePath = path.join(__dirname, '..', 'templates', 'email', `${templateName}.html`);
   const layoutPath = path.join(__dirname, '..', 'templates', 'email', 'layout.html');
   let content = fs.readFileSync(templatePath, 'utf8');
+  content = content.replace(/{{{\s*([a-zA-Z0-9_]+)\s*}}}/g, (_, key) => String(variables[key] ?? ''));
   content = content.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => escapeHtml(variables[key]));
 
   let layout = fs.readFileSync(layoutPath, 'utf8').replace('{{content}}', content);
+  layout = layout.replace(/{{{\s*([a-zA-Z0-9_]+)\s*}}}/g, (_, key) => String(variables[key] ?? ''));
   layout = layout.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => escapeHtml(variables[key]));
   return layout;
 };
@@ -205,18 +207,37 @@ const sendUserCreatedByAdminEmail = ({ to, name, role = 'customer', temporaryPas
   });
 };
 
-const sendUserCreatedBySupplierEmail = ({ to, name, role = 'customer', temporaryPassword, description }) => {
+const sendUserCreatedBySupplierEmail = ({ to, name, role = 'customer', temporaryPassword, description, supplierName, acceptUrl }) => {
   const roleTitle = formatRoleTitle(role);
-  const resolvedDescription = description || getSupplierCreatedDescription(role);
+  const resolvedDescription = description || (supplierName
+    ? `${supplierName} has created a ${roleTitle.toLowerCase()} account for you on BinDrop so you can view and track your bin orders.`
+    : getSupplierCreatedDescription(role));
+
+  let acceptSection = '';
+  if (acceptUrl) {
+    acceptSection = `
+<table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:24px auto 14px;text-align:center;">
+  <tr>
+    <td style="border-radius:6px;background:#10b981;text-align:center;">
+      <a href="${escapeHtml(acceptUrl)}" style="display:inline-block;padding:12px 28px;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:6px;line-height:1.4;">Accept Invitation</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 20px;text-align:center;color:#6b7280;font-size:13px;">
+  Click Accept above to activate your account with ${escapeHtml(supplierName || 'your supplier')} (no login required).
+</p>`;
+  }
 
   return sendTemplatedEmail({
     to,
-    subject: `Your BinDrop ${roleTitle} account is ready`,
+    subject: supplierName ? `${supplierName} invited you to BinDrop - Account Ready` : `Your BinDrop ${roleTitle} account is ready`,
     templateName: 'userCreatedBySupplier',
     variables: {
       name: name || roleTitle,
       role: roleTitle,
       roleTitle,
+      supplierName: supplierName || 'Your Supplier',
+      acceptSection,
       description: resolvedDescription,
       temporaryPassword: temporaryPassword || '',
       webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
@@ -224,7 +245,25 @@ const sendUserCreatedBySupplierEmail = ({ to, name, role = 'customer', temporary
       year: new Date().getFullYear(),
       logoUrl: getEmailLogoUrl(),
     },
-    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password generated for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
+    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\n${acceptUrl ? `Accept your invitation to activate: ${acceptUrl}\n\n` : ''}Your Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password generated for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
+  });
+};
+
+const sendCustomerInvitationEmail = ({ to, name, supplierName, acceptUrl }) => {
+  return sendTemplatedEmail({
+    to,
+    subject: `${supplierName || 'A supplier'} invited you to connect on BinDrop`,
+    templateName: 'customerInvitation',
+    variables: {
+      name: name || 'Customer',
+      supplierName: supplierName || 'A BinDrop Supplier',
+      acceptUrl: acceptUrl || '',
+      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
+      year: new Date().getFullYear(),
+      logoUrl: getEmailLogoUrl(),
+    },
+    text: `Hello ${name || 'Customer'},\n\n${supplierName || 'A supplier'} has added you as a customer to their account on BinDrop.\n\nTo activate your account under this supplier and allow them to manage bin rentals for you, please accept the invitation:\n${acceptUrl}\n\n(No login required to accept)\n\nSign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login`,
   });
 };
 
@@ -262,6 +301,7 @@ module.exports = {
   sendPasswordResetOtpEmail,
   sendUserCreatedByAdminEmail,
   sendUserCreatedBySupplierEmail,
+  sendCustomerInvitationEmail,
   sendCustomerStatusEmail,
   generateTemporaryPassword,
   formatRoleTitle,
