@@ -532,7 +532,7 @@ const addCustomer = async (req, res) => {
         const supplierRow = await pool.query('SELECT name FROM users WHERE id = $1', [supplierId]);
         const supplierName = supplierRow.rows[0]?.name || 'Your supplier';
 
-        const frontendUrl = process.env.FRONTEND_URL || 'https://app.bindrop.ai';
+        const frontendUrl = process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai';
 
         // 1. Look up by phone and email independently
         let customer = await User.findByPhone(trimmedPhone);

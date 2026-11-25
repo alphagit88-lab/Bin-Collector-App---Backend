@@ -15,3 +15,4 @@ JWT_EXPIRES_IN=7d
 
 # Frontend URL (for CORS)
 FRONTEND_URL=http://localhost:3000
+FRONTEND_APP_URL=http://localhost:3000

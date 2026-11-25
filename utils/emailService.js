@@ -198,12 +198,12 @@ const sendUserCreatedByAdminEmail = ({ to, name, role = 'customer', temporaryPas
       roleTitle,
       description: resolvedDescription,
       temporaryPassword: temporaryPassword || '',
-      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      webLoginUrl: `${process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai'}/login`,
       mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
       year: new Date().getFullYear(),
       logoUrl: getEmailLogoUrl(),
     },
-    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password set for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
+    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\nYour Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password set for your account. Once you sign in at ${(process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
   });
 };
 
@@ -240,12 +240,12 @@ const sendUserCreatedBySupplierEmail = ({ to, name, role = 'customer', temporary
       acceptSection,
       description: resolvedDescription,
       temporaryPassword: temporaryPassword || '',
-      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      webLoginUrl: `${process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai'}/login`,
       mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
       year: new Date().getFullYear(),
       logoUrl: getEmailLogoUrl(),
     },
-    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\n${acceptUrl ? `Accept your invitation to activate: ${acceptUrl}\n\n` : ''}Your Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password generated for your account. Once you sign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
+    text: `Hello ${name || roleTitle},\n\n${resolvedDescription}\n\n${acceptUrl ? `Accept your invitation to activate: ${acceptUrl}\n\n` : ''}Your Temporary Password: ${temporaryPassword || ''}\n\nPlease change your password after logging in: This is a temporary password generated for your account. Once you sign in at ${(process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai')}/login, go to your account settings to change it to your own personal password.\n\nDownload the mobile app: ${process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile'}`,
   });
 };
 
@@ -258,12 +258,12 @@ const sendCustomerInvitationEmail = ({ to, name, supplierName, acceptUrl }) => {
       name: name || 'Customer',
       supplierName: supplierName || 'A BinDrop Supplier',
       acceptUrl: acceptUrl || '',
-      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      webLoginUrl: `${process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai'}/login`,
       mobileAppUrl: process.env.MOBILE_APP_URL || 'https://play.google.com/store/apps/details?id=com.binrental.mobile',
       year: new Date().getFullYear(),
       logoUrl: getEmailLogoUrl(),
     },
-    text: `Hello ${name || 'Customer'},\n\n${supplierName || 'A supplier'} has added you as a customer to their account on BinDrop.\n\nTo activate your account under this supplier and allow them to manage bin rentals for you, please accept the invitation:\n${acceptUrl}\n\n(No login required to accept)\n\nSign in at ${(process.env.FRONTEND_URL || 'https://app.bindrop.ai')}/login`,
+    text: `Hello ${name || 'Customer'},\n\n${supplierName || 'A supplier'} has added you as a customer to their account on BinDrop.\n\nTo activate your account under this supplier and allow them to manage bin rentals for you, please accept the invitation:\n${acceptUrl}\n\n(No login required to accept)\n\nSign in at ${(process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai')}/login`,
   });
 };
 
@@ -287,11 +287,11 @@ const sendCustomerStatusEmail = ({ to, name, supplierName, isActive }) => {
       badgeBg: isActive ? '#f0fdf4' : '#fff1f2',
       badgeBorder: isActive ? '#bbf7d0' : '#fecdd3',
       badgeAccent: isActive ? '#059669' : '#e11d48',
-      webLoginUrl: `${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+      webLoginUrl: `${process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai'}/login`,
       year: new Date().getFullYear(),
       logoUrl: getEmailLogoUrl(),
     },
-    text: `Hello ${name || 'Customer'},\n\nYour customer account with ${supplierName} on BinDrop has been ${action}.\n\nStatus: ${statusLabel}\n${statusDescription}\n\nSign in at ${process.env.FRONTEND_URL || 'https://app.bindrop.ai'}/login`,
+    text: `Hello ${name || 'Customer'},\n\nYour customer account with ${supplierName} on BinDrop has been ${action}.\n\nStatus: ${statusLabel}\n${statusDescription}\n\nSign in at ${process.env.FRONTEND_APP_URL || 'https://app.bindrop.ai'}/login`,
   });
 };
 
