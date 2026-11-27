@@ -6,6 +6,7 @@ const SystemSetting = require('../models/SystemSetting');
 const ProvinceGST = require('../models/ProvinceGST');
 const PhysicalBin = require('../models/PhysicalBin');
 const OrderItem = require('../models/OrderItem');
+const OrderSupplierOffer = require('../models/OrderSupplierOffer');
 const { sendPushNotifications } = require('../utils/pushNotification');
 const { generateRequestId } = require('../utils/requestId');
 const { parsePagination, paginationMeta, extractWindowTotal, stripWindowTotal } = require('../utils/pagination');
@@ -237,6 +238,10 @@ const calculatePrice = async (req, res) => {
       const grand_gst_amount = processedSplits.reduce((sum, s) => sum + s.gst_amount, 0);
       const grand_total = processedSplits.reduce((sum, s) => sum + s.total, 0);
 
+      // Fetch price range setting
+      const rangeSetting = await SystemSetting.findByKey('supplier_select_price_range');
+      const supplierSelectRange = rangeSetting && !isNaN(parseFloat(rangeSetting.value)) ? parseFloat(rangeSetting.value) : 10;
+
       return res.json({
         success: true,
         data: {
@@ -250,7 +255,8 @@ const calculatePrice = async (req, res) => {
           total: grand_total,
           province_code: provinceCode,
           is_split_order: true,
-          splits: processedSplits
+          splits: processedSplits,
+          supplier_select_price_range: supplierSelectRange
         }
       });
     }
@@ -261,6 +267,10 @@ const calculatePrice = async (req, res) => {
     const subtotal = base_price + additional_duration_charge;
     const gst_amount = subtotal * (gstRate / 100);
     const total = subtotal + gst_amount;
+
+    // Fetch price range setting
+    const rangeSetting = await SystemSetting.findByKey('supplier_select_price_range');
+    const supplierSelectRange = rangeSetting && !isNaN(parseFloat(rangeSetting.value)) ? parseFloat(rangeSetting.value) : 10;
 
     res.json({
       success: true,
@@ -277,7 +287,8 @@ const calculatePrice = async (req, res) => {
         is_split_order: false,
         splits: null,
         supplier_id: singleSupplierId,
-        supplier_name: singleSupplierName
+        supplier_name: singleSupplierName,
+        supplier_select_price_range: supplierSelectRange
       }
     });
   } catch (error) {
@@ -350,12 +361,14 @@ const createServiceRequest = async (req, res) => {
     const requestId = await generateRequestId();
 
     let qualifiedSuppliers = [];
+    let candidateSuppliers = [];
     let orderItems = [];
     let finalEstimatedPrice = parseFloat(estimated_price) || 0;
 
     if (service_category === 'service') {
       // Find suppliers covering the location for general services
       qualifiedSuppliers = await User.findQualifiedSuppliersForService(latitude, longitude, location);
+      candidateSuppliers = qualifiedSuppliers;
     } else {
       // Validation and supplier search for bins
       if (bins && Array.isArray(bins) && bins.length > 0) {
@@ -406,8 +419,23 @@ const createServiceRequest = async (req, res) => {
         });
       }
 
+      const lowestPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
       if (!finalEstimatedPrice) {
-        finalEstimatedPrice = parseFloat(qualifiedSuppliers[0].total_price) || 0;
+        finalEstimatedPrice = lowestPrice;
+      }
+
+      // Fetch price range setting (default $10)
+      const rangeSetting = await SystemSetting.findByKey('supplier_select_price_range');
+      const supplierSelectRange = rangeSetting && !isNaN(parseFloat(rangeSetting.value)) ? parseFloat(rangeSetting.value) : 10;
+
+      // Filter candidate suppliers within range [lowestPrice, lowestPrice + supplierSelectRange]
+      if (!supplier_id && supplierSelectRange >= 0) {
+        candidateSuppliers = qualifiedSuppliers.filter(s => {
+          const p = parseFloat(s.total_price);
+          return !isNaN(p) && p <= (lowestPrice + supplierSelectRange);
+        });
+      } else {
+        candidateSuppliers = qualifiedSuppliers;
       }
 
       // Calculate duration if dates are provided (even for commercial)
@@ -547,7 +575,7 @@ const createServiceRequest = async (req, res) => {
     const serviceRequest = await ServiceRequest.create({
       request_id: requestId,
       customer_id: customerId,
-      supplier_id: supplier_id || qualifiedSuppliers?.[0]?.id || null,
+      supplier_id: supplier_id || null,
       service_category,
       bin_type_id: firstBin ? parseInt(firstBin.bin_type_id) : null,
       bin_size_id: firstBin && firstBin.bin_size_id ? parseInt(firstBin.bin_size_id) : null,
@@ -590,13 +618,27 @@ const createServiceRequest = async (req, res) => {
       }
     }
 
+    // Record candidate supplier offers if order is unassigned
+    if (!supplier_id && candidateSuppliers && candidateSuppliers.length > 0) {
+      const offers = candidateSuppliers.map(s => ({
+        service_request_id: serviceRequest.id,
+        supplier_id: s.id,
+        offered_price: parseFloat(s.total_price) || finalEstimatedPrice
+      }));
+      await OrderSupplierOffer.createBulk(offers).catch(err => console.error('Error creating supplier offers:', err));
+    }
+
     const fullRequest = await ServiceRequest.findById(serviceRequest.id);
     const items = await OrderItem.findByServiceRequest(serviceRequest.id);
 
-    // Emit notification to qualified suppliers
+    // Emit notification to candidate/qualified suppliers
     const io = req.app.get('io');
-    if (io && qualifiedSuppliers.length > 0) {
-      qualifiedSuppliers.forEach((supplier) => {
+    const targetSuppliers = (!supplier_id && candidateSuppliers && candidateSuppliers.length > 0)
+      ? candidateSuppliers
+      : qualifiedSuppliers;
+
+    if (io && targetSuppliers.length > 0) {
+      targetSuppliers.forEach((supplier) => {
         let message = '';
         if (service_category === 'service') {
           message = `New service request available near ${fullRequest.location}`;
@@ -625,7 +667,7 @@ const createServiceRequest = async (req, res) => {
         }).catch(err => console.error('DB Notification error:', err));
       });
 
-      const pushTokens = qualifiedSuppliers.map(s => s.pushToken).filter(token => token);
+      const pushTokens = targetSuppliers.map(s => s.pushToken).filter(token => token);
       if (pushTokens.length > 0) {
         const title = 'New Request';
         let body = '';
@@ -649,7 +691,7 @@ const createServiceRequest = async (req, res) => {
       message: 'Service request created successfully',
       data: {
         request: fullRequest,
-        qualifiedSuppliersCount: qualifiedSuppliers.length
+        qualifiedSuppliersCount: targetSuppliers.length
       },
     });
   } catch (error) {
@@ -851,17 +893,10 @@ const acceptRequest = async (req, res) => {
       });
     }
 
-    if (request.supplier_id && request.supplier_id !== supplierId) {
-      return res.status(403).json({
+    if (request.status !== 'pending' || (request.supplier_id && request.supplier_id !== supplierId)) {
+      return res.status(409).json({
         success: false,
-        message: 'This request is already assigned to another supplier',
-      });
-    }
-
-    if (request.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: 'Request cannot be accepted in current status',
+        message: 'This request has already been accepted by another supplier',
       });
     }
 
@@ -883,11 +918,46 @@ const acceptRequest = async (req, res) => {
     const nextStatus = !paymentMethod || paymentMethod === 'cash' ? 'confirmed' : 'awaiting_payment';
     const nextPaymentStatus = 'pending';
 
-    await ServiceRequest.update(id, {
-      supplier_id: supplierId,
-      status: nextStatus,
-      payment_status: nextPaymentStatus,
+    // Atomic update to prevent simultaneous race conditions when multiple suppliers accept
+    const updateResult = await pool.query(
+      `UPDATE service_requests
+       SET supplier_id = $1, status = $2, payment_status = $3, updated_at = NOW()
+       WHERE id = $4 AND status = 'pending' AND (supplier_id IS NULL OR supplier_id = $1)
+       RETURNING *`,
+      [supplierId, nextStatus, nextPaymentStatus, id]
+    );
+
+    if (updateResult.rows.length === 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'This request has already been accepted by another supplier',
+      });
+    }
+
+    // Mark candidate offers: winning supplier accepted, other candidates claimed_by_other
+    const otherSupplierIds = await OrderSupplierOffer.markClaimed(id, supplierId).catch(err => {
+      console.error('Error marking claimed offers:', err);
+      return [];
     });
+
+    // Real-time broadcast: remove request from other candidate suppliers' screens immediately
+    const io = req.app.get('io');
+    if (io) {
+      if (otherSupplierIds && otherSupplierIds.length > 0) {
+        otherSupplierIds.forEach(otherId => {
+          io.to(`supplier_${otherId}`).emit('request_removed', {
+            id: parseInt(id),
+            requestId: request.request_id,
+            message: `Request #${request.request_id} has been accepted by another supplier.`
+          });
+        });
+      }
+      io.emit('order_claimed', {
+        id: parseInt(id),
+        requestId: request.request_id,
+        supplierId
+      });
+    }
 
     // Log status history
     await StatusHistory.create({
@@ -920,7 +990,6 @@ const acceptRequest = async (req, res) => {
     // - create transaction + credit supplier wallet
 
     // Notify customer
-    const io = req.app.get('io');
     if (io) {
       io.to(`customer_${request.customer_id}`).emit('request_accepted', {
         request: updatedRequest,
@@ -1586,6 +1655,19 @@ const cancelRequest = async (req, res) => {
       });
     }
 
+    // Check if supplier is declining an unassigned pending request offered to them
+    if (isSupplier && request.status === 'pending' && (!request.supplier_id || request.supplier_id !== userId)) {
+      await pool.query(
+        `UPDATE order_supplier_offers SET status = 'rejected', updated_at = NOW()
+         WHERE service_request_id = $1 AND supplier_id = $2`,
+        [id, userId]
+      );
+      return res.json({
+        success: true,
+        message: 'Request declined successfully',
+      });
+    }
+
     // Check if user is authorized to cancel
     if (!isAdmin &&
       request.customer_id !== userId &&
@@ -1660,6 +1742,21 @@ const cancelRequest = async (req, res) => {
         type: 'status_update',
         relatedId: updatedRequest.id
       }).catch(err => console.error('DB Notification error:', err));
+    }
+
+    // Cancel open candidate offers and notify candidate suppliers in real-time
+    const cancelledCandidateSupplierIds = await OrderSupplierOffer.cancelAll(id).catch(err => {
+      console.error('Error cancelling supplier offers:', err);
+      return [];
+    });
+    if (io && cancelledCandidateSupplierIds && cancelledCandidateSupplierIds.length > 0) {
+      cancelledCandidateSupplierIds.forEach(candId => {
+        io.to(`supplier_${candId}`).emit('request_removed', {
+          id: parseInt(id),
+          requestId: updatedRequest.request_id,
+          message: `Request #${updatedRequest.request_id} was cancelled.`
+        });
+      });
     }
 
     if (request.supplier_id && updatedRequest.supplier_push_token) {

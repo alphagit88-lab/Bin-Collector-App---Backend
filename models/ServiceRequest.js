@@ -250,6 +250,9 @@ class ServiceRequest {
       if (filters.status === 'inProgress') {
         query += ` AND sr.status = ANY($${paramCount++}::text[])`;
         values.push(['on_delivery', 'delivered', 'pickup']);
+      } else if (filters.status === 'confirmed') {
+        query += ` AND sr.status = ANY($${paramCount++}::text[])`;
+        values.push(['confirmed', 'awaiting_payment']);
       } else {
         query += ` AND sr.status = $${paramCount++}`;
         values.push(filters.status);
@@ -347,13 +350,22 @@ class ServiceRequest {
         sr.supplier_id = $1
         OR (
           sr.status = 'pending' AND sr.supplier_id IS NULL
-          AND EXISTS (
-            SELECT 1 FROM service_areas sa
-            WHERE sa.supplier_id = $1
-            AND (
-              (sr.latitude IS NOT NULL AND sr.longitude IS NOT NULL AND sa.latitude IS NOT NULL AND sa.longitude IS NOT NULL
-               AND (6371 * acos(cos(radians(sr.latitude)) * cos(radians(sa.latitude)) * cos(radians(sa.longitude) - radians(sr.longitude)) + sin(radians(sr.latitude)) * sin(radians(sa.latitude)))) <= sa.area_radius_km)
-              OR ((sr.latitude IS NULL OR sr.longitude IS NULL OR sa.latitude IS NULL OR sa.longitude IS NULL) AND sr.location ILIKE '%' || sa.city || '%')
+          AND (
+            EXISTS (
+              SELECT 1 FROM order_supplier_offers oso
+              WHERE oso.service_request_id = sr.id AND oso.supplier_id = $1 AND oso.status = 'offered'
+            )
+            OR (
+              NOT EXISTS (SELECT 1 FROM order_supplier_offers oso WHERE oso.service_request_id = sr.id)
+              AND EXISTS (
+                SELECT 1 FROM service_areas sa
+                WHERE sa.supplier_id = $1
+                AND (
+                  (sr.latitude IS NOT NULL AND sr.longitude IS NOT NULL AND sa.latitude IS NOT NULL AND sa.longitude IS NOT NULL
+                   AND (6371 * acos(cos(radians(sr.latitude)) * cos(radians(sa.latitude)) * cos(radians(sa.longitude) - radians(sr.longitude)) + sin(radians(sr.latitude)) * sin(radians(sa.latitude)))) <= sa.area_radius_km)
+                  OR ((sr.latitude IS NULL OR sr.longitude IS NULL OR sa.latitude IS NULL OR sa.longitude IS NULL) AND sr.location ILIKE '%' || sa.city || '%')
+                )
+              )
             )
           )
         )
@@ -366,6 +378,9 @@ class ServiceRequest {
       if (filters.status === 'inProgress') {
         query += ` AND sr.status = ANY($${paramCount++}::text[])`;
         values.push(['on_delivery', 'delivered', 'pickup']);
+      } else if (filters.status === 'confirmed') {
+        query += ` AND sr.status = ANY($${paramCount++}::text[])`;
+        values.push(['confirmed', 'awaiting_payment']);
       } else {
         query += ` AND sr.status = $${paramCount++}`;
         values.push(filters.status);
@@ -459,20 +474,29 @@ class ServiceRequest {
 
     if (supplierId) {
       values.push(supplierId);
-      // Show orders explicitly assigned to this supplier OR open orders in their service area
+      // Show orders explicitly assigned to this supplier OR offered to them in order_supplier_offers
       query += `
         AND (
           sr.supplier_id = $1 
           OR (
             sr.supplier_id IS NULL
-            AND EXISTS (
-                SELECT 1 FROM service_areas sa
-                WHERE sa.supplier_id = $1
-                AND (
+            AND (
+              EXISTS (
+                SELECT 1 FROM order_supplier_offers oso
+                WHERE oso.service_request_id = sr.id AND oso.supplier_id = $1 AND oso.status = 'offered'
+              )
+              OR (
+                NOT EXISTS (SELECT 1 FROM order_supplier_offers oso WHERE oso.service_request_id = sr.id)
+                AND EXISTS (
+                  SELECT 1 FROM service_areas sa
+                  WHERE sa.supplier_id = $1
+                  AND (
                     (sr.latitude IS NOT NULL AND sr.longitude IS NOT NULL AND sa.latitude IS NOT NULL AND sa.longitude IS NOT NULL 
                      AND (6371 * acos(cos(radians(sr.latitude)) * cos(radians(sa.latitude)) * cos(radians(sa.longitude) - radians(sr.longitude)) + sin(radians(sr.latitude)) * sin(radians(sa.latitude)))) <= sa.area_radius_km)
                     OR ((sr.latitude IS NULL OR sr.longitude IS NULL OR sa.latitude IS NULL OR sa.longitude IS NULL) AND sr.location ILIKE '%' || sa.city || '%')
+                  )
                 )
+              )
             )
           )
         )
