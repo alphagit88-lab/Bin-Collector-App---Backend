@@ -300,6 +300,164 @@ const assignDriver = async (req, res) => {
     }
 };
 
+const getOrderDispatcher = async (req, res) => {
+    try {
+        const supplierId = req.user.id;
+        const [driversResult, jobsResult] = await Promise.all([
+            pool.query(
+                `SELECT id, name, phone, profile_photo AS "profilePhoto"
+                 FROM users
+                 WHERE supplier_id = $1 AND role = 'driver'
+                   AND is_deleted = FALSE AND is_active = TRUE
+                 ORDER BY name ASC`,
+                [supplierId]
+            ),
+            pool.query(
+                `SELECT sr.id, sr.request_id, sr.location, sr.status, sr.start_date,
+                        sr.latitude, sr.longitude, sr.driver_id,
+                        sr.driver_priority AS "driverPriority",
+                        c.name AS customer_name, bt.name AS bin_type_name,
+                        bs.size AS bin_size, p.name AS project_name
+                 FROM service_requests sr
+                 LEFT JOIN users c ON c.id = sr.customer_id
+                 LEFT JOIN bin_types bt ON bt.id = sr.bin_type_id
+                 LEFT JOIN bin_sizes bs ON bs.id = sr.bin_size_id
+                 LEFT JOIN projects p ON p.id = sr.project_id
+                 WHERE sr.supplier_id = $1
+                   AND sr.status NOT IN ('pending', 'cancelled', 'completed')
+                 ORDER BY sr.driver_id NULLS FIRST,
+                          sr.driver_priority ASC NULLS LAST,
+                          sr.start_date ASC NULLS LAST,
+                          sr.created_at ASC`,
+                [supplierId]
+            ),
+        ]);
+
+        res.json({
+            success: true,
+            data: { drivers: driversResult.rows, jobs: jobsResult.rows },
+        });
+    } catch (error) {
+        console.error('Get order dispatcher error:', error);
+        res.status(500).json({ success: false, message: 'Error loading order dispatcher' });
+    }
+};
+
+const saveOrderDispatcher = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const supplierId = req.user.id;
+        const assignments = req.body.assignments;
+        if (!Array.isArray(assignments)) {
+            return res.status(400).json({ success: false, message: 'Assignments must be an array' });
+        }
+
+        const ids = assignments.map(item => Number(item.requestId));
+        if (ids.some(id => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+            return res.status(400).json({ success: false, message: 'Each order must appear exactly once' });
+        }
+
+        const grouped = new Map();
+        for (const item of assignments) {
+            const driverId = item.driverId == null ? null : Number(item.driverId);
+            const priority = item.priority == null ? null : Number(item.priority);
+            if (driverId === null) {
+                if (priority !== null) return res.status(400).json({ success: false, message: 'Unassigned orders cannot have a priority' });
+                continue;
+            }
+            if (!Number.isInteger(driverId) || !Number.isInteger(priority) || priority <= 0) {
+                return res.status(400).json({ success: false, message: 'Assigned orders require a valid driver and priority' });
+            }
+            if (!grouped.has(driverId)) grouped.set(driverId, []);
+            grouped.get(driverId).push(priority);
+        }
+
+        for (const priorities of grouped.values()) {
+            priorities.sort((a, b) => a - b);
+            if (priorities.some((priority, index) => priority !== index + 1)) {
+                return res.status(400).json({ success: false, message: 'Driver stop priorities must be consecutive' });
+            }
+        }
+
+        await client.query('BEGIN');
+        const jobsResult = await client.query(
+            `SELECT id, request_id, driver_id FROM service_requests
+             WHERE supplier_id = $1 AND status NOT IN ('pending', 'cancelled', 'completed')
+             FOR UPDATE`,
+            [supplierId]
+        );
+        const currentIds = jobsResult.rows.map(row => Number(row.id)).sort((a, b) => a - b);
+        const currentJobs = new Map(jobsResult.rows.map(row => [Number(row.id), row]));
+        const submittedIds = [...ids].sort((a, b) => a - b);
+        if (currentIds.length !== submittedIds.length || currentIds.some((id, index) => id !== submittedIds[index])) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ success: false, message: 'Jobs changed while editing. Refresh and try again.' });
+        }
+
+        const driverIds = [...grouped.keys()];
+        const driversResult = await client.query(
+            `SELECT id FROM users
+             WHERE supplier_id = $1 AND role = 'driver'
+               AND is_deleted = FALSE AND is_active = TRUE`,
+            [supplierId]
+        );
+        const availableDriverIds = driversResult.rows.map(row => Number(row.id));
+        const availableDriverSet = new Set(availableDriverIds);
+        if (driverIds.some(driverId => !availableDriverSet.has(driverId))) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: 'One or more drivers are unavailable' });
+        }
+
+        for (const item of assignments) {
+            await client.query(
+                `UPDATE service_requests
+                 SET driver_id = $1, driver_priority = $2, updated_at = NOW()
+                 WHERE id = $3 AND supplier_id = $4`,
+                [item.driverId ?? null, item.priority ?? null, item.requestId, supplierId]
+            );
+        }
+        await client.query('COMMIT');
+
+        const newlyAssigned = assignments.filter(item => {
+            const previous = currentJobs.get(Number(item.requestId));
+            return item.driverId != null && Number(previous?.driver_id) !== Number(item.driverId);
+        });
+        if (newlyAssigned.length) {
+            try {
+                const notifiedDriverIds = [...new Set(newlyAssigned.map(item => Number(item.driverId)))];
+                const tokenResult = await pool.query(
+                    `SELECT id, push_token FROM users WHERE id = ANY($1::int[]) AND push_token IS NOT NULL`,
+                    [notifiedDriverIds]
+                );
+                const tokens = new Map(tokenResult.rows.map(row => [Number(row.id), row.push_token]));
+                Promise.allSettled(newlyAssigned.map(item => {
+                    const token = tokens.get(Number(item.driverId));
+                    const job = currentJobs.get(Number(item.requestId));
+                    if (!token) return Promise.resolve();
+                    return sendPushNotifications(token, 'New Job Assigned', `You have been assigned to job ${job?.request_id || item.requestId}`, {
+                        type: 'NEW_JOB_ASSIGNED', requestId: Number(item.requestId), orderId: job?.request_id,
+                    });
+                })).catch(() => {});
+            } catch (notificationError) {
+                console.error('Dispatcher assignment notification error:', notificationError);
+            }
+        }
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`supplier_${supplierId}`).emit('dispatcher_update', { supplierId });
+            availableDriverIds.forEach(driverId => io.to(`user_${driverId}`).emit('dispatcher_update', { driverId }));
+        }
+        res.json({ success: true, message: 'Dispatch plan saved successfully' });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Save order dispatcher error:', error);
+        res.status(500).json({ success: false, message: 'Error saving dispatch plan' });
+    } finally {
+        client.release();
+    }
+};
+
 const getBinSizes = async (req, res) => {
     try {
         const binSizes = await BinSize.findAll();
@@ -768,6 +926,8 @@ module.exports = {
     getDrivers,
     addDriver,
     assignDriver,
+    getOrderDispatcher,
+    saveOrderDispatcher,
     getCustomers,
     addCustomer,
     updateCustomer,

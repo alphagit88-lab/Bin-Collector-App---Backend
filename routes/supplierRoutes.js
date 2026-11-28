@@ -24,6 +24,8 @@ router.post('/service-area-bins/price', verifyToken, verifyRole(['supplier', 'ad
 router.get('/drivers', verifyToken, verifyRole(['supplier', 'admin']), supplierController.getDrivers);
 router.post('/drivers', verifyToken, verifyRole(['supplier', 'admin']), validateCreateUser, supplierController.addDriver);
 router.post('/assign-driver', verifyToken, verifyRole(['supplier', 'admin']), supplierController.assignDriver);
+router.get('/order-dispatcher', verifyToken, verifyRole(['supplier']), supplierController.getOrderDispatcher);
+router.put('/order-dispatcher', verifyToken, verifyRole(['supplier']), supplierController.saveOrderDispatcher);
 
 // Customer Management
 // Public (no auth): accept customer invitation via email link

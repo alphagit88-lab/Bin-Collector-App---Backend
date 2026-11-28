@@ -594,7 +594,13 @@ class ServiceRequest {
   static async assignDriver(requestId, driverId) {
     const query = `
       UPDATE service_requests
-      SET driver_id = $1, updated_at = NOW()
+      SET driver_id = $1,
+          driver_priority = (
+            SELECT COALESCE(MAX(driver_priority), 0) + 1
+            FROM service_requests
+            WHERE driver_id = $1 AND status NOT IN ('cancelled', 'completed')
+          ),
+          updated_at = NOW()
       WHERE id = $2
       RETURNING *
     `;
@@ -682,7 +688,7 @@ class ServiceRequest {
       paramCount++;
     }
 
-    query += ` ORDER BY sr.created_at DESC`;
+    query += ` ORDER BY sr.driver_priority ASC NULLS LAST, sr.created_at DESC`;
 
     if (filters.limit) {
       query += ` LIMIT $${paramCount++}`;
